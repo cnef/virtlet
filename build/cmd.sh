@@ -383,6 +383,8 @@ function build_image_internal {
 
 function install_vendor_internal {
     if [ ! -d vendor ]; then
+        export http_proxy=http://127.0.0.1:1080
+        git config --global http.proxy http://127.0.0.1:1080
         glide install --strip-vendor
     fi
 }
