@@ -17,6 +17,7 @@ limitations under the License.
 package tapmanager
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -120,10 +121,12 @@ func NewTapFDSource(cniClient cni.Client, enableSriov bool, calicoSubnetSize int
 	return s, nil
 }
 
-func (s *TapFDSource) getDummyNetwork() (*cnicurrent.Result, string, error) {
+func (s *TapFDSource) getDummyNetwork(podID, podName, podNS string) (*cnicurrent.Result, string, error) {
+	s.Mutex.Lock()
+	defer s.Mutex.Unlock()
 	if s.dummyNetwork == nil {
 		var err error
-		s.dummyNetwork, s.dummyNetworkNsPath, err = s.cniClient.GetDummyNetwork()
+		s.dummyNetwork, s.dummyNetworkNsPath, err = s.cniClient.GetDummyNetwork(podID, podName, podNS)
 		if err != nil {
 			return nil, "", err
 		}
@@ -185,18 +188,33 @@ func (s *TapFDSource) GetFDs(key string, data []byte) ([]int, []byte, error) {
 			gotError = true
 			return nil, fmt.Errorf("error fixing cni configuration: %v", err)
 		}
-		if err := nettools.FixCalicoNetworking(netConfig, s.calicoSubnetSize, s.getDummyNetwork); err != nil {
+		if err := nettools.FixCalicoNetworking(netConfig, s.calicoSubnetSize, s.getDummyNetwork, pnd.PodID, pnd.PodName, pnd.PodNs); err != nil {
 			// don't fail in this case because there may be even no Calico
 			glog.Warningf("Calico detection/fix didn't work: %v", err)
+		}
+		// check net.IP is multicast or network address
+		for _, r := range netConfig.IPs {
+			// check network address
+			ip := r.Address
+			ipv4Addr, ipv4Net, _ := net.ParseCIDR(ip.String())
+			ip1 := make(net.IP, len(ipv4Addr.To4()))
+			binary.BigEndian.PutUint32(ip1, binary.BigEndian.Uint32(ipv4Addr.To4())|^binary.BigEndian.Uint32(net.IP(ipv4Net.Mask).To4()))
+			if ipv4Addr.String() == ip1.String() || ipv4Addr.String() == ipv4Net.IP.String() {
+				glog.V(3).Infof("CNI got Boardcast or network ip address:\n%s", spew.Sdump(netConfig))
+				gotError = true
+				return nil, fmt.Errorf("Got Boardcase or network ip address")
+			}
 		}
 		glog.V(3).Infof("CNI Result after fix:\n%s", spew.Sdump(netConfig))
 
 		var err error
 		if csn, err = nettools.SetupContainerSideNetwork(netConfig, netNSPath, allLinks, s.enableSriov, hostNS); err != nil {
+			glog.Errorf("nettools setupcontainersidenetwork: %v", err)
 			return nil, err
 		}
 
 		if respData, err = json.Marshal(csn); err != nil {
+			glog.Errorf("json Marshal: %v", err)
 			return nil, fmt.Errorf("error marshalling net config: %v", err)
 		}
 
@@ -232,11 +250,11 @@ func (s *TapFDSource) Release(key string) error {
 	// This can cause some resource leaks in multiple CNI case but makes it possible
 	// to call `RunPodSandbox` again after a failed attempt. Failing to do so would cause
 	// the next `RunPodSandbox` call to fail due to the netns already being present.
-	defer func() {
-		if err := cni.DestroyNetNS(pn.pnd.PodID); err != nil {
-			glog.Errorf("Error when removing network namespace for pod sandbox %q: %v", pn.pnd.PodID, err)
-		}
-	}()
+	// defer func() {
+	// 	if err := cni.DestroyNetNS(pn.pnd.PodID); err != nil {
+	// 		glog.Errorf("Error when removing network namespace for pod sandbox %q: %v", pn.pnd.PodID, err)
+	// 	}
+	// }()
 
 	if err := nettools.ReconstructVFs(pn.csn, vmNS, false); err != nil {
 		return fmt.Errorf("failed to reconstruct SR-IOV devices: %v", err)
@@ -251,10 +269,9 @@ func (s *TapFDSource) Release(key string) error {
 	}); err != nil {
 		return err
 	}
-
-	if err := s.cniClient.RemoveSandboxFromNetwork(pn.pnd.PodID, pn.pnd.PodName, pn.pnd.PodNs); err != nil {
-		return fmt.Errorf("error removing pod sandbox %q from CNI network: %v", pn.pnd.PodID, err)
-	}
+	// if err := s.cniClient.RemoveSandboxFromNetwork(pn.pnd.PodID, pn.pnd.PodName, pn.pnd.PodNs); err != nil {
+	// 	return fmt.Errorf("error removing pod sandbox %q from CNI network: %v", pn.pnd.PodID, err)
+	// }
 
 	delete(s.fdMap, key)
 	return nil

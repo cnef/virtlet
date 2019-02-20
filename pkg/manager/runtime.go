@@ -118,14 +118,14 @@ func (v *VirtletRuntimeService) RunPodSandbox(ctx context.Context, in *kubeapi.R
 
 	// Check if sandbox already exists, it may happen when virtlet restarts and kubelet "thinks" that sandbox disappered
 	sandbox := v.metadataStore.PodSandbox(podID)
-	sandboxInfo, err := sandbox.Retrieve()
-	if err == nil && sandboxInfo != nil {
-		if sandboxInfo.State == types.PodSandboxState_SANDBOX_READY {
-			return &kubeapi.RunPodSandboxResponse{
-				PodSandboxId: podID,
-			}, nil
-		}
-	}
+	// sandboxInfo, err := sandbox.Retrieve()
+	// if err == nil && sandboxInfo != nil {
+	// 	if sandboxInfo.State == types.PodSandboxState_SANDBOX_READY {
+	// 		return &kubeapi.RunPodSandboxResponse{
+	// 			PodSandboxId: podID,
+	// 		}, nil
+	// 	}
+	// }
 
 	state := kubeapi.PodSandboxState_SANDBOX_READY
 	pnd := &tapmanager.PodNetworkDesc{
@@ -148,21 +148,35 @@ func (v *VirtletRuntimeService) RunPodSandbox(ctx context.Context, in *kubeapi.R
 	}
 
 	fdPayload := &tapmanager.GetFDPayload{Description: pnd}
-	csnBytes, err := v.fdManager.AddFDs(podID, fdPayload)
+	var csnBytes []byte
+	var err error
+	for i := 0; i < 10; i++ {
+
+		csnBytes, err = v.fdManager.AddFDs(podID, fdPayload)
+		if err != nil {
+			if fErr := v.fdManager.ReleaseFDs(podID); fErr != nil {
+				glog.Errorf("Error removing pod %s (%s) from CNI network: %v", podName, podID, fErr)
+			}
+		} else {
+			glog.Infof("Success to AddFDs from CNI network: %v", podID)
+			i = 10
+		}
+	}
 	// The reason for defer here is that it is also necessary to ReleaseFDs if AddFDs fail
 	// Try to clean up CNI netns (this may be necessary e.g. in case of multiple CNI plugins with CNI Genie)
 	defer func() {
 		if retErr != nil {
 			// Try to clean up CNI netns if we couldn't add the pod to the metadata store or if AddFDs call wasn't
 			// successful to avoid leaking resources
+			glog.Errorf("ERROR: runsandbox failed retErr: %v", retErr)
 			if fdErr := v.fdManager.ReleaseFDs(podID); fdErr != nil {
 				glog.Errorf("Error removing pod %s (%s) from CNI network: %v", podName, podID, fdErr)
 			}
 		}
 	}()
-	if err != nil {
-		return nil, fmt.Errorf("Error adding pod %s (%s) to CNI network: %v", podName, podID, err)
-	}
+	// if err != nil {
+	// 	return nil, fmt.Errorf("Error adding pod %s (%s) to CNI network: %v", podName, podID, err)
+	// }
 
 	psi, err := metadata.NewPodSandboxInfo(
 		CRIPodSandboxConfigToPodSandboxConfig(config),
@@ -295,16 +309,16 @@ func (v *VirtletRuntimeService) CreateContainer(ctx context.Context, in *kubeapi
 	// NOTE: there is no distinction between lack of key and other types of
 	// errors when accessing boltdb. This will be changed when we switch to
 	// storing whole marshaled sandbox metadata as json.
-	remainingContainers, err := v.metadataStore.ListPodContainers(podSandboxID)
-	if err != nil {
-		glog.V(3).Infof("Error retrieving pod %q containers", podSandboxID)
-	} else {
-		for _, container := range remainingContainers {
-			glog.V(3).Infof("CreateContainer: there's already a container in the sandbox (id: %s)", container.GetID())
-			response := &kubeapi.CreateContainerResponse{ContainerId: container.GetID()}
-			return response, nil
-		}
-	}
+	// remainingContainers, err := v.metadataStore.ListPodContainers(podSandboxID)
+	// if err != nil {
+	// 	glog.V(3).Infof("Error retrieving pod %q containers", podSandboxID)
+	// } else {
+	// 	for _, container := range remainingContainers {
+	// 		glog.V(3).Infof("CreateContainer: there's already a container in the sandbox (id: %s)", container.GetID())
+	// 		response := &kubeapi.CreateContainerResponse{ContainerId: container.GetID()}
+	// 		return response, nil
+	// 	}
+	// }
 
 	sandboxInfo, err := v.metadataStore.PodSandbox(podSandboxID).Retrieve()
 	if err != nil {

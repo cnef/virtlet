@@ -60,9 +60,11 @@ func ensureStoragePool(conn virt.StorageConnection, name string) (virt.StoragePo
 
 	pool, err := conn.LookupStoragePoolByName(name)
 	if err == nil {
+		pool.Refresh()
 		return pool, nil
 	}
-	return conn.CreateStoragePool(&libvirtxml.StoragePool{
+	// define a pool
+	return conn.DefineStoragePool(&libvirtxml.StoragePool{
 		Type:   "dir",
 		Name:   name,
 		Target: &libvirtxml.StoragePoolTarget{Path: poolDir},
