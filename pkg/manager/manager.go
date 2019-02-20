@@ -148,10 +148,10 @@ func (v *VirtletManager) Run() error {
 	v.server = NewServer()
 	v.server.Register(runtimeService, imageService)
 
-	if err := v.recoverAndGC(); err != nil {
-		// we consider recover / gc errors non-fatal
-		glog.Warning(err)
-	}
+	// if err := v.recoverAndGC(); err != nil {
+	// 	// we consider recover / gc errors non-fatal
+	// 	glog.Warning(err)
+	// }
 
 	glog.V(1).Infof("Starting server on socket %s", *v.config.CRISocketPath)
 	if err = v.server.Serve(*v.config.CRISocketPath); err != nil {
