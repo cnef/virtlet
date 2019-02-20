@@ -174,6 +174,10 @@ func (ds *domainSettings) createDomain(config *types.VMConfig) *libvirtxml.Domai
 					},
 				},
 			}
+		case types.CPUModelHostPassthrough:
+			domain.CPU = &libvirtxml.DomainCPU{
+				Mode: types.CPUModelHostPassthrough,
+			}
 		case "":
 			// leave it empty
 		default:

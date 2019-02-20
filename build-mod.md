@@ -1,4 +1,24 @@
-# Build mode readme
+# Build modify readme
+
+## Virsh debug info
+
+domain xml path: `/etc/libvirt/qemu`
+log path: `/var/log/libvirt/qemu/`
+
+virsh common command:
+
+~~~sh
+virsh define vm0.xml  // import vm0
+virsh start vm0 
+virsh list --all
+virsh shutdown vm0
+virsh destroy vm0  // power off vm
+virsh suspend vm0
+virsh resume vm0
+virsh undefine vm1  // delete vm
+virsh dumpxml vm0 // display vm as xml
+virsh edit vm0 // edit xml
+~~~
 
 ## What difference between pool define and pool create as
 

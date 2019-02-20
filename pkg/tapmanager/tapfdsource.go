@@ -188,7 +188,7 @@ func (s *TapFDSource) GetFDs(key string, data []byte) ([]int, []byte, error) {
 			gotError = true
 			return nil, fmt.Errorf("error fixing cni configuration: %v", err)
 		}
-		if err := nettools.FixCalicoNetworking(netConfig, s.calicoSubnetSize, s.getDummyNetwork, pnd.PodID, pnd.PodName, pnd.PodNs); err != nil {
+		if err := nettools.FixCalicoNetworking(netConfig, s.calicoSubnetSize, s.getDummyNetwork, pnd.PodID, pnd.PodName+"dummy", pnd.PodNs); err != nil {
 			// don't fail in this case because there may be even no Calico
 			glog.Warningf("Calico detection/fix didn't work: %v", err)
 		}

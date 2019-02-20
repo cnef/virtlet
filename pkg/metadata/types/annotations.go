@@ -69,6 +69,8 @@ const (
 	CloudInitImageTypeConfigDrive CloudInitImageType = "configdrive"
 	// CPUModelHostModel specifies cpu model needed for nested virtualization
 	CPUModelHostModel = "host-model"
+	// CPUModelHostPassthrough specifies cpu model use host cpu model
+	CPUModelHostPassthrough = "host-passthrough"
 )
 
 // DiskDriverName specifies disk driver name supported by Virtlet.
