@@ -99,23 +99,23 @@ func (v *cephVolume) Setup() (*libvirtxml.DomainDisk, *libvirtxml.DomainFilesyst
 		return nil, nil, fmt.Errorf("invalid format of ceph monitor setting: %s. Expected ip:port", v.opts.Monitor)
 	}
 
-	// clean old secret is existing
-	if err := v.Teardown(); err != nil {
-		return nil, nil, fmt.Errorf("error clean existing secret: %v", err)
-	}
+	if exist, err := v.SecretExists(); err != nil {
+		glog.Errorf("Setup check ceph secret exist failed: %v", err)
+		return nil, nil, err
+	} else if !exist {
+		secret, err := v.owner.DomainConnection().DefineSecret(v.secretDef())
+		if err != nil {
+			return nil, nil, fmt.Errorf("error defining ceph secret: %v", err)
+		}
 
-	secret, err := v.owner.DomainConnection().DefineSecret(v.secretDef())
-	if err != nil {
-		return nil, nil, fmt.Errorf("error defining ceph secret: %v", err)
-	}
+		key, err := base64.StdEncoding.DecodeString(v.opts.Secret)
+		if err != nil {
+			return nil, nil, fmt.Errorf("error decoding ceph secret: %v", err)
+		}
 
-	key, err := base64.StdEncoding.DecodeString(v.opts.Secret)
-	if err != nil {
-		return nil, nil, fmt.Errorf("error decoding ceph secret: %v", err)
-	}
-
-	if err := secret.SetValue([]byte(key)); err != nil {
-		return nil, nil, fmt.Errorf("error setting value of secret %q: %v", v.secretUsageName(), err)
+		if err := secret.SetValue([]byte(key)); err != nil {
+			return nil, nil, fmt.Errorf("error setting value of secret %q: %v", v.secretUsageName(), err)
+		}
 	}
 
 	return &libvirtxml.DomainDisk{
@@ -141,6 +141,18 @@ func (v *cephVolume) Setup() (*libvirtxml.DomainDisk, *libvirtxml.DomainFilesyst
 			},
 		},
 	}, nil, nil
+}
+
+func (v *cephVolume) SecretExists() (bool, error) {
+	_, err := v.owner.DomainConnection().LookupSecretByUsageName("ceph", v.secretUsageName())
+	if err == virt.ErrSecretNotFound {
+		glog.V(3).Infof("No secret with usage name %q for ceph volume was found", v.secretUsageName())
+		return false, nil
+	} else if err != nil {
+		return false, fmt.Errorf("error lookup secret with usage name %q: %v", v.secretUsageName(), err)
+	}
+	glog.V(3).Infof("Secret with usage name: %q was found", v.secretUsageName())
+	return true, nil
 }
 
 func (v *cephVolume) Teardown() error {
