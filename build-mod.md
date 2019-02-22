@@ -17,7 +17,22 @@ virsh suspend vm0
 virsh resume vm0
 virsh undefine vm1  // delete vm
 virsh dumpxml vm0 // display vm as xml
+~~~
+
+edit vm xml
+
+~~~sh
+virsh destroy vm0
 virsh edit vm0 // edit xml
+virsh start vm0
+~~~
+
+change ceph block volume online, see https://ceph.com/geen-categorie/ceph-rbd-online-resize/
+
+~~~sh
+virsh list
+virsh domblklist vm0
+virsh blockresize --domain vm0 --path vdb --size 600G
 ~~~
 
 ## What difference between pool define and pool create as

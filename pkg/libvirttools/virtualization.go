@@ -106,7 +106,7 @@ func (ds *domainSettings) createDomain(config *types.VMConfig) *libvirtxml.Domai
 		},
 
 		OS: &libvirtxml.DomainOS{
-			Type: &libvirtxml.DomainOSType{Type: "hvm"},
+			Type: &libvirtxml.DomainOSType{Type: "hvm", Machine: "pc-i440fx-xenial"},
 			BootDevices: []libvirtxml.DomainBootDevice{
 				{Dev: "hd"},
 			},
