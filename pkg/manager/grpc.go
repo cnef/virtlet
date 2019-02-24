@@ -107,7 +107,7 @@ func dump(v interface{}) string {
 func intercept(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 	logLevel := logLevelForMethod(info.FullMethod)
 	if glog.V(logLevel) {
-		glog.Infof("ENTER: %s():\n%s", info.FullMethod, dump(req))
+		glog.V(4).Infof("ENTER: %s():\n%s", info.FullMethod, dump(req))
 	}
 	resp, err := handler(ctx, req)
 	switch {
@@ -116,7 +116,7 @@ func intercept(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo,
 	case err != nil:
 		glog.Errorf("FAIL: %s(): %v", info.FullMethod, err)
 	case bool(glog.V(logLevel)):
-		glog.Infof("LEAVE: %s()\n%s", info.FullMethod, dump(resp))
+		glog.V(4).Infof("LEAVE: %s()\n%s", info.FullMethod, dump(resp))
 	}
 	return resp, err
 }

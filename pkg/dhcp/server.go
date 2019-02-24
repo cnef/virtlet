@@ -296,9 +296,9 @@ func (s *Server) getStaticRoutes(ip net.IPNet) (router, routes []byte, err error
 		} else {
 			gw = gw.To4()
 		}
-		if !ip.Contains(gw) {
-			continue
-		}
+		// if !ip.Contains(gw) {
+		// 	continue
+		// }
 		if gw != nil && dstIP.Equal(net.IPv4zero) {
 			if s, _ := route.Dst.Mask.Size(); s == 0 {
 				router = gw

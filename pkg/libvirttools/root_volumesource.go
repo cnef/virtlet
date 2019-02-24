@@ -72,8 +72,12 @@ func (v *rootVolume) createVolume() (virt.StorageVolume, error) {
 	}
 
 	vols, err := storagePool.ListVolumes()
+	if err != nil {
+		glog.Errorf("listVolumes failed: %v", err)
+		return nil, err
+	}
 	for n, v := range vols {
-		glog.Infof("createVolume  %d vols: %v err: %v", n, v.Name, err)
+		glog.V(3).Infof("createVolume %d vols: %v", n, v.Name)
 	}
 
 	exist, err := storagePool.LookupVolumeByName(v.volumeName())
@@ -81,7 +85,7 @@ func (v *rootVolume) createVolume() (virt.StorageVolume, error) {
 		return exist, err
 	}
 
-	glog.Infof("createVolume lookup %s err: %v", v.volumeName(), err)
+	glog.V(3).Infof("createVolume lookup %s err: %v", v.volumeName(), err)
 
 	return storagePool.CreateStorageVol(&libvirtxml.StorageVolume{
 		Type: "file",

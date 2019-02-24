@@ -158,7 +158,7 @@ func (v *VirtletRuntimeService) RunPodSandbox(ctx context.Context, in *kubeapi.R
 				glog.Errorf("Error removing pod %s (%s) from CNI network: %v", podName, podID, fErr)
 			}
 		} else {
-			glog.Infof("Success to AddFDs from CNI network: %v", podID)
+			glog.V(3).Infof("Success to AddFDs from CNI network: %v", podID)
 			i = 10
 		}
 	}
