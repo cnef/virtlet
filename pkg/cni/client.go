@@ -198,8 +198,14 @@ func handleRemoveSandboxFromNetwork(arg interface{}) (interface{}, error) {
 		return nil, err
 	}
 
+	rtConf := c.cniRuntimeConf(req.PodID, req.PodName, req.PodNs)
+	// NOTE: this annotation is only need by CNI Genie
+	rtConf.Args = append(rtConf.Args, [2]string{
+		"K8S_ANNOT", `{"cni": "calico"}`,
+	})
+
 	glog.V(3).Infof("RemoveSandboxFromNetwork: PodID %q, PodName %q, PodNs %q", req.PodID, req.PodName, req.PodNs)
-	err = c.cniConfig.DelNetworkList(c.netConfigList, c.cniRuntimeConf(req.PodID, req.PodName, req.PodNs))
+	err = c.cniConfig.DelNetworkList(c.netConfigList, rtConf)
 	if err == nil {
 		glog.V(3).Infof("RemoveSandboxFromNetwork: PodID %q, PodName %q, PodNs %q: success",
 			req.PodID, req.PodName, req.PodNs)

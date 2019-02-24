@@ -250,11 +250,11 @@ func (s *TapFDSource) Release(key string) error {
 	// This can cause some resource leaks in multiple CNI case but makes it possible
 	// to call `RunPodSandbox` again after a failed attempt. Failing to do so would cause
 	// the next `RunPodSandbox` call to fail due to the netns already being present.
-	// defer func() {
-	// 	if err := cni.DestroyNetNS(pn.pnd.PodID); err != nil {
-	// 		glog.Errorf("Error when removing network namespace for pod sandbox %q: %v", pn.pnd.PodID, err)
-	// 	}
-	// }()
+	defer func() {
+		if err := cni.DestroyNetNS(pn.pnd.PodID); err != nil {
+			glog.Errorf("Error when removing network namespace for pod sandbox %q: %v", pn.pnd.PodID, err)
+		}
+	}()
 
 	if err := nettools.ReconstructVFs(pn.csn, vmNS, false); err != nil {
 		return fmt.Errorf("failed to reconstruct SR-IOV devices: %v", err)
@@ -269,9 +269,16 @@ func (s *TapFDSource) Release(key string) error {
 	}); err != nil {
 		return err
 	}
-	// if err := s.cniClient.RemoveSandboxFromNetwork(pn.pnd.PodID, pn.pnd.PodName, pn.pnd.PodNs); err != nil {
-	// 	return fmt.Errorf("error removing pod sandbox %q from CNI network: %v", pn.pnd.PodID, err)
-	// }
+
+	//only warning if remove dummy failed
+	podID := utils.NewUUID5(pn.pnd.PodID, "dummy")
+	if err := s.cniClient.RemoveSandboxFromNetwork(podID, pn.pnd.PodName+"dummy", pn.pnd.PodNs); err != nil {
+		glog.Errorf("error removing dummy pod sandbox %q from CNI network: %v", podID, err)
+	}
+
+	if err := s.cniClient.RemoveSandboxFromNetwork(pn.pnd.PodID, pn.pnd.PodName, pn.pnd.PodNs); err != nil {
+		return fmt.Errorf("error removing pod sandbox %q from CNI network: %v", pn.pnd.PodID, err)
+	}
 
 	delete(s.fdMap, key)
 	return nil
