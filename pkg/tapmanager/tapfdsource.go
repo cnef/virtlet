@@ -251,9 +251,15 @@ func (s *TapFDSource) Release(key string) error {
 	// to call `RunPodSandbox` again after a failed attempt. Failing to do so would cause
 	// the next `RunPodSandbox` call to fail due to the netns already being present.
 	defer func() {
+		podID := utils.NewUUID5(pn.pnd.PodID, "dummy")
+		if err := cni.DestroyNetNS(podID); err != nil {
+			glog.Errorf("Error when removing Dummy network namespace for pod sandbox %q: %v", podID, err)
+		}
+
 		if err := cni.DestroyNetNS(pn.pnd.PodID); err != nil {
 			glog.Errorf("Error when removing network namespace for pod sandbox %q: %v", pn.pnd.PodID, err)
 		}
+
 	}()
 
 	if err := nettools.ReconstructVFs(pn.csn, vmNS, false); err != nil {
