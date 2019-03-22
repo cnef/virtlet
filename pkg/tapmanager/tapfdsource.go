@@ -142,11 +142,8 @@ func (s *TapFDSource) GetFDs(key string, data []byte) ([]int, []byte, error) {
 	if err := json.Unmarshal(data, &payload); err != nil {
 		return nil, nil, fmt.Errorf("error unmarshalling GetFD payload: %v", err)
 	}
-	pnd := payload.Description
-	if err := cni.CreateNetNS(pnd.PodID); err != nil {
-		return nil, nil, fmt.Errorf("error creating new netns for pod %s (%s): %v", pnd.PodName, pnd.PodID, err)
-	}
 
+	pnd := payload.Description
 	gotError := false
 	podAddedToNetwork := false
 	defer func() {
@@ -161,6 +158,11 @@ func (s *TapFDSource) GetFDs(key string, data []byte) ([]int, []byte, error) {
 			}
 		}
 	}()
+
+	if err := cni.CreateNetNS(pnd.PodID); err != nil {
+		gotError = true
+		return nil, nil, fmt.Errorf("error creating new netns for pod %s (%s): %v", pnd.PodName, pnd.PodID, err)
+	}
 
 	netConfig, err := s.cniClient.AddSandboxToNetwork(pnd.PodID, pnd.PodName, pnd.PodNs)
 	if err != nil {
