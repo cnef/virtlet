@@ -64,7 +64,7 @@ func newCephVolume(volumeName, configPath string, config *types.VMConfig, owner 
 	// The file itself will be needed to recreate cephVolume during the teardown,
 	// but we don't need secret content at that time anymore
 	safeOpts := *v.opts
-	safeOpts.Secret = ""
+	//safeOpts.Secret = ""
 	if err := utils.WriteJSON(configPath, safeOpts, 0700); err != nil {
 		return nil, fmt.Errorf("failed to overwrite ceph flexvolume config %q: %v", configPath, err)
 	}
@@ -112,8 +112,11 @@ func (v *cephVolume) Setup() (*libvirtxml.DomainDisk, *libvirtxml.DomainFilesyst
 		if err != nil {
 			return nil, nil, fmt.Errorf("error decoding ceph secret: %v", err)
 		}
+		if key == nil {
+			return nil, nil, fmt.Errorf("error found secret key: %v with value nil", v.secretUsageName())
+		}
 
-		if err := secret.SetValue([]byte(key)); err != nil {
+		if err := secret.SetValue(key); err != nil {
 			return nil, nil, fmt.Errorf("error setting value of secret %q: %v", v.secretUsageName(), err)
 		}
 	}
