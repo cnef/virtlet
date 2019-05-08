@@ -26,6 +26,7 @@ import (
 	"github.com/jonboulle/clockwork"
 	libvirtxml "github.com/libvirt/libvirt-go-xml"
 	"k8s.io/apimachinery/pkg/fields"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kubetypes "k8s.io/kubernetes/pkg/kubelet/types"
 
 	vconfig "github.com/Mirantis/virtlet/pkg/config"
@@ -44,11 +45,11 @@ const (
 	noKvmEmulator     = "/usr/bin/qemu-system-x86_64"
 
 	domainStartCheckInterval      = 250 * time.Millisecond
-	domainStartTimeout            = 10 * time.Second
-	domainShutdownRetryInterval   = 5 * time.Second
-	domainShutdownOnRemoveTimeout = 60 * time.Second
+	domainStartTimeout            = 600 * time.Second
+	domainShutdownRetryInterval   = 10 * time.Second
+	domainShutdownOnRemoveTimeout = 600 * time.Second
 	domainDestroyCheckInterval    = 500 * time.Millisecond
-	domainDestroyTimeout          = 5 * time.Second
+	domainDestroyTimeout          = 60 * time.Second
 
 	// ContainerNsUUID template for container ns uuid generation
 	ContainerNsUUID = "67b7fb47-7735-4b64-86d2-6d062d121966"
@@ -306,7 +307,7 @@ func (v *VirtualizationTool) CreateContainer(config *types.VMConfig, netFdKey st
 		return "", err
 	}
 
-	domainUUID := utils.NewUUID5(ContainerNsUUID, config.PodSandboxID)
+	domainUUID := utils.NewUUID5(ContainerNsUUID, config.PodName)
 	// FIXME: this field should be moved to VMStatus struct (to be added)
 	config.DomainUUID = domainUUID
 	cpuModel := v.config.CPUModel
@@ -589,6 +590,22 @@ func (v *VirtualizationTool) removeDomain(containerID string, config *types.VMCo
 		return err
 	}
 
+	clientset, err := utils.GetK8sClientset(nil)
+	if err != nil {
+		glog.Errorf("K8s client get error %v", err)
+		return err
+	}
+
+	podNamespace := config.PodNamespace
+	podName := config.PodName
+
+	pod, err := clientset.CoreV1().Pods(podNamespace).Get(podName, metav1.GetOptions{})
+
+	if pod.Annotations["virt-machine-deletion"] == "keep-data" {
+		glog.Infof("Found keep-data annot, skip remove domain")
+		return nil
+	}
+
 	if domain != nil {
 		if state == types.ContainerState_CONTAINER_RUNNING {
 			if err := domain.Destroy(); err != nil {
@@ -634,6 +651,8 @@ func (v *VirtualizationTool) removeDomain(containerID string, config *types.VMCo
 // even if it's still running.
 // It waits up to 5 sec for doing the job by libvirt.
 func (v *VirtualizationTool) RemoveContainer(containerID string) error {
+	glog.Infof("Going to remove container %s", containerID)
+
 	config, state, err := v.getVMConfigFromMetadata(containerID)
 
 	if err != nil {
