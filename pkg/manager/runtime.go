@@ -139,7 +139,7 @@ func (v *VirtletRuntimeService) RunPodSandbox(ctx context.Context, in *kubeapi.R
 	// CNI is used just to configure the network namespace and CNI DNS
 	// info is ignored. Instead of this, DnsConfig from PodSandboxConfig
 	// is used to configure container's resolv.conf.
-	if config.DnsConfig != nil {
+	if config.DnsConfig != nil && config.Annotations["cni"] != "bridge" {
 		pnd.DNS = &cnitypes.DNS{
 			Nameservers: config.DnsConfig.Servers,
 			Search:      config.DnsConfig.Searches,

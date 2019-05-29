@@ -223,17 +223,20 @@ func (s *Server) prepareResponse(pkt *dhcp4.Packet, serverIP net.IP, mt dhcp4.Me
 	}
 
 	// 86400 - full 24h
-	p.Options[dhcp4.OptLeaseTime] = []byte{0, 1, 81, 128}
+	// p.Options[dhcp4.OptLeaseTime] = []byte{0, 1, 81, 128}
+
+	p.Options[dhcp4.OptLeaseTime] = []byte{0, 0, 0, 120}
 
 	// 43200 - 12h
-	p.Options[dhcp4.OptRenewalTime] = []byte{0, 0, 168, 192}
-
+	//p.Options[dhcp4.OptRenewalTime] = []byte{0, 0, 168, 192}
+	p.Options[dhcp4.OptRenewalTime] = []byte{0, 0, 0, 60}
 	// 64800 - 18h
-	p.Options[dhcp4.OptRebindingTime] = []byte{0, 0, 253, 32}
+	//p.Options[dhcp4.OptRebindingTime] = []byte{0, 0, 253, 32}
+	p.Options[dhcp4.OptRebindingTime] = []byte{0, 0, 0, 90}
 
 	// TODO: include more dns options
 	if len(s.config.Result.DNS.Nameservers) == 0 {
-		p.Options[dhcp4.OptDNSServers] = defaultDNS
+		p.Options[dhcp4.OptDNSServers] = router
 	} else {
 		var b bytes.Buffer
 		for _, nsIP := range s.config.Result.DNS.Nameservers {
