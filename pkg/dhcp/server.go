@@ -60,7 +60,7 @@ func NewServer(config *network.ContainerSideNetwork) *Server {
 func (s *Server) SetupListener(laddr string) error {
 	var listener *dhcp4.Conn
 	var err error
-	if listener, err = dhcp4.NewConn(fmt.Sprintf("%s:%d", laddr, serverPort)); err != nil {
+	if listener, err = dhcp4.NewSnooperConn(fmt.Sprintf("%s:%d", laddr, serverPort)); err != nil {
 		return err
 	}
 	s.listener = listener
@@ -83,7 +83,7 @@ func (s *Server) Serve() error {
 		if intf == nil {
 			return fmt.Errorf("received DHCP packet with no interface information - please fill a bug to https://github.com/google/netboot")
 		}
-		glog.V(2).Infof("Received dhcp packet from: %s", pkt.HardwareAddr.String())
+		glog.V(2).Infof("Received dhcp packet from: %s %s", pkt.HardwareAddr.String(), pkt.DebugString())
 
 		serverIP, err := interfaceIP(intf)
 		if err != nil {

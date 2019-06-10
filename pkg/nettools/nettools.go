@@ -529,6 +529,14 @@ func disableMacLearning(nsPath string, bridgeName string) error {
 	return nil
 }
 
+func addDummyRoute(nsPath string, bridgeName string) error {
+	if _, err := exec.Command("nsenter", "--net="+nsPath, "ip", "route", "add", "default", "dev", bridgeName).CombinedOutput(); err != nil {
+		/* TODO list: always return nil */
+		return nil
+	}
+
+	return nil
+}
 // SetHardwareAddr sets hardware address on provided link.
 func SetHardwareAddr(link netlink.Link, hwAddr net.HardwareAddr) error {
 	if err := netlink.LinkSetDown(link); err != nil {
@@ -583,6 +591,10 @@ func setupTapAndGetInterfaceDescription(link netlink.Link, nsPath string, ifaceN
 	// https://ubuntuforums.org/showthread.php?t=2329373&s=cf580a41179e0f186ad4e625834a1d61&p=13511965#post13511965
 	// (affects Flannel)
 	if err := disableMacLearning(nsPath, containerBridgeName); err != nil {
+		return nil, err
+	}
+
+	if err := addDummyRoute(nsPath, containerBridgeName); err != nil {
 		return nil, err
 	}
 
