@@ -42,6 +42,7 @@ import (
 	"os"
 	"os/exec"
 	"sort"
+	"path"
 
 	"github.com/containernetworking/cni/pkg/ns"
 	cnitypes "github.com/containernetworking/cni/pkg/types"
@@ -204,6 +205,7 @@ func CreateEscapeVethPair(innerNS ns.NetNS, ifName string, mtu int) (outerVeth, 
 }
 
 func createBridge(brName string, mtu int) (*netlink.Bridge, error) {
+	b := true
 	br := &netlink.Bridge{
 		LinkAttrs: netlink.LinkAttrs{
 			Name: brName,
@@ -214,6 +216,7 @@ func createBridge(brName string, mtu int) (*netlink.Bridge, error) {
 			// default packet limit
 			TxQLen: -1,
 		},
+		MulticastSnooping: &b,
 	}
 
 	if err := netlink.LinkAdd(br); err != nil {
@@ -504,16 +507,18 @@ func bringUpLoopback() error {
 
 func updateEbTables(nsPath, interfaceName, command string) error {
 	// block/unblock DHCP traffic from/to CNI-provided link
-	for _, item := range []struct{ chain, opt string }{
+	for _, item := range []struct{ chain, opt, port string}{
 		// dhcp responses originate from bridge itself
-		{"OUTPUT", "--ip-source-port"},
+		{"OUTPUT", "--ip-source-port", "68"},
+		{"OUTPUT", "--ip-source-port", "67"},
 		// dhcp requests originate from the VM
-		{"FORWARD", "--ip-destination-port"},
+		{"FORWARD", "--ip-destination-port", "67"},
+		{"FORWARD", "--ip-destination-port", "68"},
 	} {
 		if out, err := exec.Command(
 			"nsenter", "--net="+nsPath,
 			"ebtables", command, item.chain, "-p", "IPV4", "--ip-protocol", "UDP",
-			item.opt, "67", "--out-if", interfaceName, "-j", "DROP").CombinedOutput(); err != nil {
+			item.opt, item.port, "--out-if", interfaceName, "-j", "DROP").CombinedOutput(); err != nil {
 			return fmt.Errorf("[netns %q] ebtables failed: %v\nOut:\n%s", nsPath, err, out)
 		}
 	}
@@ -522,17 +527,38 @@ func updateEbTables(nsPath, interfaceName, command string) error {
 }
 
 func disableMacLearning(nsPath string, bridgeName string) error {
-	if out, err := exec.Command("nsenter", "--net="+nsPath, "brctl", "setageing", bridgeName, "0").CombinedOutput(); err != nil {
-		return fmt.Errorf("[netns %q] brctl failed: %v\nOut:\n%s", nsPath, err, out)
+	for i:=0;i<=2;i++ {
+		var err error
+		if out, err := exec.Command("nsenter", "--net="+nsPath, "brctl", "setageing", bridgeName, "0").CombinedOutput(); err != nil {
+			fmt.Printf("Set ageing error: %s %v %s", nsPath, err, out)
+			continue
+		}
+	
+		if out, err := exec.Command("ip", "netns", "exec", path.Base(nsPath), "brctl", "setageing", bridgeName, "0").CombinedOutput(); err != nil {
+			fmt.Printf("Set ageing error: %s %v %s", nsPath, err, out)
+			continue
+		}
+	
+		if out, err := exec.Command("ip", "netns", "exec", path.Base(nsPath), "brctl", "stp", bridgeName, "on").CombinedOutput(); err != nil {
+			fmt.Printf("Set stp off: %s %v %s", nsPath, err, out)
+			continue
+		}
+		if out, err := exec.Command("ip", "netns", "exec", path.Base(nsPath), "brctl", "setfd", bridgeName, "2").CombinedOutput(); err != nil {
+			fmt.Printf("Set stp off: %s %v %s", nsPath, err, out)
+			continue
+		}
+		if err == nil && i > 3 {
+			break
+		}
+		continue
 	}
 
 	return nil
 }
 
 func addDummyRoute(nsPath string, bridgeName string) error {
-	if _, err := exec.Command("nsenter", "--net="+nsPath, "ip", "route", "add", "default", "dev", bridgeName).CombinedOutput(); err != nil {
-		/* TODO list: always return nil */
-		return nil
+	if out, err := exec.Command("nsenter", "--net="+nsPath, "ip", "route", "add", "default", "dev", bridgeName).CombinedOutput(); err != nil {
+		return fmt.Errorf("[netns %q] ip route add default failed: %v\nOut:\n%s", nsPath, err, out)
 	}
 
 	return nil
@@ -594,9 +620,7 @@ func setupTapAndGetInterfaceDescription(link netlink.Link, nsPath string, ifaceN
 		return nil, err
 	}
 
-	if err := addDummyRoute(nsPath, containerBridgeName); err != nil {
-		return nil, err
-	}
+	addDummyRoute(nsPath, containerBridgeName)
 
 	if err := bringUpLoopback(); err != nil {
 		return nil, err

@@ -60,7 +60,7 @@ func NewServer(config *network.ContainerSideNetwork) *Server {
 func (s *Server) SetupListener(laddr string) error {
 	var listener *dhcp4.Conn
 	var err error
-	if listener, err = dhcp4.NewSnooperConn(fmt.Sprintf("%s:%d", laddr, serverPort)); err != nil {
+	if listener, err = dhcp4.NewConn(fmt.Sprintf("%s:%d", laddr, serverPort)); err != nil {
 		return err
 	}
 	s.listener = listener
