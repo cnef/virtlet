@@ -25,8 +25,8 @@ import (
 	"github.com/golang/glog"
 	"github.com/jonboulle/clockwork"
 	libvirtxml "github.com/libvirt/libvirt-go-xml"
-	"k8s.io/apimachinery/pkg/fields"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/fields"
 	kubetypes "k8s.io/kubernetes/pkg/kubelet/types"
 
 	vconfig "github.com/Mirantis/virtlet/pkg/config"
@@ -103,6 +103,12 @@ func (ds *domainSettings) createDomain(config *types.VMConfig) *libvirtxml.Domai
 			},
 			Controllers: []libvirtxml.DomainController{
 				{Type: "scsi", Index: &scsiControllerIndex, Model: "virtio-scsi"},
+			},
+			MemBalloon: &libvirtxml.DomainMemBalloon{
+				Model: "virtio",
+				Stats: &libvirtxml.DomainMemBalloonStats{
+					Period: 5,
+				},
 			},
 		},
 
