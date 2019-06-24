@@ -105,6 +105,7 @@ func (ds *domainSettings) createDomain(config *types.VMConfig) *libvirtxml.Domai
 				{Type: "scsi", Index: &scsiControllerIndex, Model: "virtio-scsi"},
 			},
 			MemBalloon: &libvirtxml.DomainMemBalloon{
+				Model: "virtio",
 				Stats: &libvirtxml.DomainMemBalloonStats{
 					Period: 5,
 				},
