@@ -512,7 +512,6 @@ func updateEbTables(nsPath, interfaceName, command string) error {
 		{"OUTPUT", "--ip-source-port", "68"},
 		{"OUTPUT", "--ip-source-port", "67"},
 		// dhcp requests originate from the VM
-		{"FORWARD", "--ip-destination-port", "67"},
 		{"FORWARD", "--ip-destination-port", "68"},
 	} {
 		if out, err := exec.Command(
