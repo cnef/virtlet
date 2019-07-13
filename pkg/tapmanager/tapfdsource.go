@@ -28,6 +28,7 @@ import (
 	"github.com/containernetworking/cni/pkg/ns"
 	cnitypes "github.com/containernetworking/cni/pkg/types"
 	cnicurrent "github.com/containernetworking/cni/pkg/types/current"
+//	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/golang/glog"
 	"github.com/vishvananda/netlink"
@@ -379,6 +380,18 @@ func (s *TapFDSource) setupNetNS(key string, pnd *PodNetworkDesc, initNet func(n
 	if err != nil {
 		return fmt.Errorf("failed to open network namespace at %q: %v", netNSPath, err)
 	}
+	/*
+        clientset, err := utils.GetK8sClientset(nil)
+        if err != nil {
+                glog.Errorf("K8s client get error %v", err)
+                return err
+        }
+	podNamespace := pnd.PodNs
+	podName := pnd.PodName
+
+        pod, err := clientset.CoreV1().Pods(podNamespace).Get(podName, metav1.GetOptions{})
+
+*/
 
 	var csn *network.ContainerSideNetwork
 	var dhcpServer *dhcp.Server
@@ -394,19 +407,21 @@ func (s *TapFDSource) setupNetNS(key string, pnd *PodNetworkDesc, initNet func(n
 		}
 
 		dhcpServer = dhcp.NewServer(csn)
-		if err := dhcpServer.SetupListener("0.0.0.0"); err != nil {
-			return fmt.Errorf("Failed to set up dhcp listener: %v", err)
-		}
-		go func() {
-			doneCh <- vmNS.Do(func(ns.NetNS) error {
-				err := dhcpServer.Serve()
-				if err != nil {
-					glog.Errorf("dhcp server error: %v", err)
-				}
-				return err
-			})
-		}()
-
+//		if pod.Annotations["cni"] == "calico" {
+			glog.Warningf("Setup calico dhcp server")
+			if err := dhcpServer.SetupListener("0.0.0.0"); err != nil {
+				return fmt.Errorf("Failed to set up dhcp listener: %v", err)
+			}
+			go func() {
+				doneCh <- vmNS.Do(func(ns.NetNS) error {
+					err := dhcpServer.Serve()
+					if err != nil {
+						glog.Errorf("dhcp server error: %v", err)
+					}
+					return err
+				})
+			}()
+//		}
 		// FIXME: there's some very small possibility for a race here
 		// (happens if the VM makes DHCP request before DHCP server is ready)
 		// For now, let's make the probability of such problem even smaller

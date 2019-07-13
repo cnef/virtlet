@@ -235,8 +235,11 @@ func (s *Server) prepareResponse(pkt *dhcp4.Packet, serverIP net.IP, mt dhcp4.Me
 	p.Options[dhcp4.OptRebindingTime] = []byte{0, 0, 0, 90}
 
 	// TODO: include more dns options
+	glog.Warningf("Set nameserver ip %+v, router: %+v", s.config.Result.DNS.Nameservers, router)
 	if len(s.config.Result.DNS.Nameservers) == 0 {
-		p.Options[dhcp4.OptDNSServers] = router
+		if router != nil {
+			p.Options[dhcp4.OptDNSServers] = router
+		}
 	} else {
 		var b bytes.Buffer
 		for _, nsIP := range s.config.Result.DNS.Nameservers {

@@ -43,6 +43,7 @@ import (
 	"os/exec"
 	"sort"
 	"path"
+	"time"
 
 	"github.com/containernetworking/cni/pkg/ns"
 	cnitypes "github.com/containernetworking/cni/pkg/types"
@@ -512,6 +513,7 @@ func updateEbTables(nsPath, interfaceName, command string) error {
 		{"OUTPUT", "--ip-source-port", "68"},
 		{"OUTPUT", "--ip-source-port", "67"},
 		// dhcp requests originate from the VM
+		{"FORWARD", "--ip-destination-port", "67"},
 		{"FORWARD", "--ip-destination-port", "68"},
 	} {
 		if out, err := exec.Command(
@@ -632,6 +634,7 @@ func setupTapAndGetInterfaceDescription(link netlink.Link, nsPath string, ifaceN
 	}
 	glog.V(3).Infof("Adding interface %q as %q", ifaceName, tapInterfaceName)
 
+	time.Sleep(20 *time.Second)
 	return &network.InterfaceDescription{
 		Type:         network.InterfaceTypeTap,
 		Name:         ifaceName,
