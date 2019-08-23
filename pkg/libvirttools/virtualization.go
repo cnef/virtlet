@@ -17,7 +17,6 @@ limitations under the License.
 package libvirttools
 
 import (
-	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -589,12 +588,12 @@ func (v *VirtualizationTool) cleanupVolumes(containerID string) error {
 	return nil
 }
 
-func (v *VirtualizationTool) getKeepDataFlag(config *types.VMConfig) error {
+func (v *VirtualizationTool) getKeepDataFlag(config *types.VMConfig) (bool, error) {
 
 	clientset, err := utils.GetK8sClientset(nil)
 	if err != nil {
 		glog.Errorf("K8s client get error %v", err)
-		return err
+		return true, err
 	}
 
 	podNamespace := config.PodNamespace
@@ -603,14 +602,14 @@ func (v *VirtualizationTool) getKeepDataFlag(config *types.VMConfig) error {
 	pod, err := clientset.CoreV1().Pods(podNamespace).Get(podName, metav1.GetOptions{})
 	if err != nil {
 		glog.Errorf("Get pod annot error: %v", err)
-		return err
+		return true, err
 	}
 
 	if pod.Annotations["virt-machine-deletion"] == "keep-data" {
 		glog.Infof("Found keep-data annot, skip remove domain")
-		return nil
+		return true, nil
 	}
-	return errors.New("Keep-data flag exists")
+	return false, nil
 }
 
 func (v *VirtualizationTool) removeDomain(containerID string, config *types.VMConfig, state types.ContainerState, failUponVolumeTeardownFailure bool) error {
@@ -622,11 +621,11 @@ func (v *VirtualizationTool) removeDomain(containerID string, config *types.VMCo
 	}
 
 	// keep data exist, should return nil
-	if err := getKeepDataFlag(config); err != nil {
-		return nil
+	if keep, err := getKeepDataFlag(config); err != nil {
+		return err
 	}
 
-	if domain != nil {
+	if domain != nil && keep == false {
 		if state == types.ContainerState_CONTAINER_RUNNING {
 			if err := domain.Destroy(); err != nil {
 				return fmt.Errorf("failed to destroy the domain: %v", err)
@@ -690,19 +689,20 @@ func (v *VirtualizationTool) RemoveContainer(containerID string) error {
 	}
 
 	// keep data exist, should return nil
-	if err := getKeepDataFlag(config); err != nil {
-		return nil
-	}
-
-	if v.metadataStore.Container(containerID).Save(
-		func(_ *types.ContainerInfo) (*types.ContainerInfo, error) {
-			return nil, nil // delete container
-		},
-	); err != nil {
-		glog.Errorf("Error when removing container '%s' from metadata store: %v", containerID, err)
+	if keep, err := getKeepDataFlag(config); err != nil {
 		return err
 	}
 
+	if keep == false {
+		if v.metadataStore.Container(containerID).Save(
+			func(_ *types.ContainerInfo) (*types.ContainerInfo, error) {
+				return nil, nil // delete container
+			},
+		); err != nil {
+			glog.Errorf("Error when removing container '%s' from metadata store: %v", containerID, err)
+			return err
+		}
+	}
 	return nil
 }
 
