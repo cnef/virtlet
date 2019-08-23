@@ -17,6 +17,7 @@ limitations under the License.
 package libvirttools
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -588,13 +589,7 @@ func (v *VirtualizationTool) cleanupVolumes(containerID string) error {
 	return nil
 }
 
-func (v *VirtualizationTool) removeDomain(containerID string, config *types.VMConfig, state types.ContainerState, failUponVolumeTeardownFailure bool) error {
-	// Give a chance to gracefully stop domain
-	// TODO: handle errors - there could be e.g. lost connection error
-	domain, err := v.domainConn.LookupDomainByUUIDString(containerID)
-	if err != nil && err != virt.ErrDomainNotFound {
-		return err
-	}
+func (v *VirtualizationTool) getKeepDataFlag(config *types.VMConfig) error {
 
 	clientset, err := utils.GetK8sClientset(nil)
 	if err != nil {
@@ -606,9 +601,28 @@ func (v *VirtualizationTool) removeDomain(containerID string, config *types.VMCo
 	podName := config.PodName
 
 	pod, err := clientset.CoreV1().Pods(podNamespace).Get(podName, metav1.GetOptions{})
+	if err != nil {
+		glog.Errorf("Get pod annot error: %v", err)
+		return err
+	}
 
 	if pod.Annotations["virt-machine-deletion"] == "keep-data" {
 		glog.Infof("Found keep-data annot, skip remove domain")
+		return nil
+	}
+	return errors.New("Keep-data flag exists")
+}
+
+func (v *VirtualizationTool) removeDomain(containerID string, config *types.VMConfig, state types.ContainerState, failUponVolumeTeardownFailure bool) error {
+	// Give a chance to gracefully stop domain
+	// TODO: handle errors - there could be e.g. lost connection error
+	domain, err := v.domainConn.LookupDomainByUUIDString(containerID)
+	if err != nil && err != virt.ErrDomainNotFound {
+		return err
+	}
+
+	// keep data exist, should return nil
+	if err := getKeepDataFlag(config); err != nil {
 		return nil
 	}
 
@@ -673,6 +687,11 @@ func (v *VirtualizationTool) RemoveContainer(containerID string) error {
 	if err := v.removeDomain(containerID, config, state, state == types.ContainerState_CONTAINER_CREATED ||
 		state == types.ContainerState_CONTAINER_RUNNING); err != nil {
 		return err
+	}
+
+	// keep data exist, should return nil
+	if err := getKeepDataFlag(config); err != nil {
+		return nil
 	}
 
 	if v.metadataStore.Container(containerID).Save(
