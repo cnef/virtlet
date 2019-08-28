@@ -602,40 +602,51 @@ func (v *VirtualizationTool) getKeepDataFlag(config *types.VMConfig) (bool, erro
 	pod, err := clientset.CoreV1().Pods(podNamespace).Get(podName, metav1.GetOptions{})
 	if err != nil {
 		glog.Errorf("Get pod annot error: %v", err)
-		return true, err
+		// pod maybe under shutdown status
+		return true, nil
 	}
 
 	if pod.Annotations["virt-machine-deletion"] == "keep-data" {
-		glog.Infof("Found keep-data annot, skip remove domain")
+		glog.Infof("Found keep-data annot, skip remove domain: %s", podName)
 		return true, nil
 	}
+	glog.Infof("Not found keep-data annot, remove domain: %s", podName)
 	return false, nil
 }
 
 func (v *VirtualizationTool) removeDomain(containerID string, config *types.VMConfig, state types.ContainerState, failUponVolumeTeardownFailure bool) error {
 	// Give a chance to gracefully stop domain
 	// TODO: handle errors - there could be e.g. lost connection error
+	// keep data exist, should return nil
+	keep, err := v.getKeepDataFlag(config)
+	if err != nil {
+		return err
+	}
+
 	domain, err := v.domainConn.LookupDomainByUUIDString(containerID)
 	if err != nil && err != virt.ErrDomainNotFound {
+		glog.Errorf("Error lookup domain %v", v)
+		if keep {
+			return nil
+		}
 		return err
 	}
 
-	// keep data exist, should return nil
-	if keep, err := getKeepDataFlag(config); err != nil {
-		return err
-	}
 
-	if domain != nil && keep == false {
+	if domain != nil {
 		if state == types.ContainerState_CONTAINER_RUNNING {
 			if err := domain.Destroy(); err != nil {
 				return fmt.Errorf("failed to destroy the domain: %v", err)
 			}
 		}
 
+		if keep {
+			glog.Infof("Keep data for container %v", containerID)
+			return nil
+		}
 		if err := domain.Undefine(); err != nil {
 			return fmt.Errorf("error undefining the domain %q: %v", containerID, err)
 		}
-
 		// Wait until domain is really removed or timeout after 5 sec.
 		if err := utils.WaitLoop(func() (bool, error) {
 			if _, err := v.domainConn.LookupDomainByUUIDString(containerID); err == virt.ErrDomainNotFound {
@@ -649,12 +660,12 @@ func (v *VirtualizationTool) removeDomain(containerID string, config *types.VMCo
 			return err
 		}
 	}
-
-	diskList, err := newDiskList(config, v.volumeSource, v)
-	if err == nil {
-		err = diskList.teardown()
+	if !keep {
+		diskList, err := newDiskList(config, v.volumeSource, v)
+		if err == nil {
+			err = diskList.teardown()
+		}
 	}
-
 	switch {
 	case err == nil:
 		return nil
@@ -675,6 +686,7 @@ func (v *VirtualizationTool) RemoveContainer(containerID string) error {
 	config, state, err := v.getVMConfigFromMetadata(containerID)
 
 	if err != nil {
+		glog.Errorf("Error to Get container info %v", err)
 		return err
 	}
 
@@ -688,20 +700,13 @@ func (v *VirtualizationTool) RemoveContainer(containerID string) error {
 		return err
 	}
 
-	// keep data exist, should return nil
-	if keep, err := getKeepDataFlag(config); err != nil {
+	if v.metadataStore.Container(containerID).Save(
+		func(_ *types.ContainerInfo) (*types.ContainerInfo, error) {
+			return nil, nil // delete container
+		},
+	); err != nil {
+		glog.Errorf("Error when removing container '%s' from metadata store: %v", containerID, err)
 		return err
-	}
-
-	if keep == false {
-		if v.metadataStore.Container(containerID).Save(
-			func(_ *types.ContainerInfo) (*types.ContainerInfo, error) {
-				return nil, nil // delete container
-			},
-		); err != nil {
-			glog.Errorf("Error when removing container '%s' from metadata store: %v", containerID, err)
-			return err
-		}
 	}
 	return nil
 }

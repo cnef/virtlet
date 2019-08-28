@@ -407,6 +407,16 @@ func (v *VirtletRuntimeService) ContainerStatus(ctx context.Context, in *kubeapi
 	if err != nil {
 		return nil, err
 	}
+	// fix crash  when info is nil
+	if info == nil {
+		glog.Warning("Can't get confianter info", in.ContainerId)
+		return &kubeapi.ContainerStatusResponse{
+			Status: &kubeapi.ContainerStatus{
+				Id:    in.ContainerId,
+				State: kubeapi.ContainerState(2),
+			},
+		}, nil
+	}
 
 	response := &kubeapi.ContainerStatusResponse{Status: ContainerInfoToCRIContainerStatus(info)}
 	return response, nil
