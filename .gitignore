@@ -56,7 +56,7 @@ Makefile.in
 /stamp-h1
 
 # glide
-vendor
+#vendor
 
 # Temporary files
 *~

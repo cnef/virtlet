@@ -210,7 +210,7 @@ imports:
 - name: github.com/vishvananda/netns
   version: 8ba1072b58e0c2a240eb5f6120165c7776c3e7b8
 - name: go.universe.tf/netboot
-  version: cc33920b4f3296801a64d731d269978116f40d92
+  version: bc90686a5279c9f5d712e61b0dfcca69da5f1642
   subpackages:
   - dhcp4
 - name: golang.org/x/crypto
