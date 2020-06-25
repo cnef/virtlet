@@ -632,17 +632,17 @@ func (v *VirtualizationTool) removeDomain(containerID string, config *types.VMCo
 		return err
 	}
 
-
 	if domain != nil {
 		if state == types.ContainerState_CONTAINER_RUNNING {
-			if err := domain.Destroy(); err != nil {
-				return fmt.Errorf("failed to destroy the domain: %v", err)
+			if keep {
+				if err := domain.Shutdown(); err != nil {
+					return fmt.Errorf("failed to shutdown the domain: %v", err)
+				}
+			} else {
+				if err := domain.Destroy(); err != nil {
+					return fmt.Errorf("failed to destroy the domain: %v", err)
+				}
 			}
-		}
-
-		if keep {
-			glog.Infof("Keep data for container %v", containerID)
-			return nil
 		}
 		if err := domain.Undefine(); err != nil {
 			return fmt.Errorf("error undefining the domain %q: %v", containerID, err)

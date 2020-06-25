@@ -85,6 +85,12 @@ func (v *qcow2Volume) createQCOW2Volume(capacity uint64, capacityUnit string) (v
 	if err != nil {
 		return nil, err
 	}
+	vol, err := storagePool.LookupVolumeByName(v.volumeName())
+	if err == nil {
+		return vol, nil
+	} else if err != virt.ErrStorageVolumeNotFound {
+		return nil, err
+	}
 	return storagePool.CreateStorageVol(&libvirtxml.StorageVolume{
 		Name:       v.volumeName(),
 		Allocation: &libvirtxml.StorageVolumeSize{Value: 0},
@@ -108,10 +114,14 @@ func (v *qcow2Volume) Setup() (*libvirtxml.DomainDisk, *libvirtxml.DomainFilesys
 		return nil, nil, err
 	}
 
-	err = vol.Format()
-	if err != nil {
-		return nil, nil, err
-	}
+	// fix:
+	// 1. loss data when recreated domain use exists disk
+	// 2. windows guest don't suppport ext4
+	//
+	// err = vol.Format()
+	// if err != nil {
+	// 	return nil, nil, err
+	// }
 
 	return &libvirtxml.DomainDisk{
 		Device: "disk",
