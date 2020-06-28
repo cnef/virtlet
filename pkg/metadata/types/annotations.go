@@ -43,6 +43,7 @@ const (
 	libvirtCPUSetting                 = "VirtletLibvirtCPUSetting"
 	sshKeysKeyName                    = "VirtletSSHKeys"
 	chown9pfsMountsKeyName            = "VirtletChown9pfsMounts"
+	forceDHCPNetworkConfigKeyName     = "VirtletForceDHCPNetworkConfig"
 	// CloudInitUserDataSourceKeyName is the name of user data source key in the pod annotations.
 	CloudInitUserDataSourceKeyName = "VirtletCloudInitUserDataSource"
 	// SSHKeySourceKeyName is the name of ssh key source key in the pod annotations.
@@ -115,6 +116,10 @@ type VirtletAnnotations struct {
 	VirtletChown9pfsMounts bool
 	// FilesForRootfs specifies files to be put on rootfs using libguestfs.
 	FilesForRootfs map[string][]byte
+	// ForceDHCPNetworkConfig prevents Virtlet from using Cloud-Init based network
+	// configuration and makes it only provide DHCP. Note that this will
+	// not work for multi-CNI configuration.
+	ForceDHCPNetworkConfig bool
 }
 
 // ExternalUserDataLoader is a function that loads external user data that's specified
@@ -304,5 +309,8 @@ func (va *VirtletAnnotations) parsePodAnnotations(ns string, podAnnotations map[
 		va.VirtletChown9pfsMounts = true
 	}
 
+	if podAnnotations[forceDHCPNetworkConfigKeyName] == "true" {
+		va.ForceDHCPNetworkConfig = true
+	}
 	return nil
 }

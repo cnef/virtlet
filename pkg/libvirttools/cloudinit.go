@@ -176,9 +176,11 @@ func (g *CloudInitGenerator) generateUserData(volumeMap diskPathMap) ([]byte, er
 }
 
 func (g *CloudInitGenerator) generateNetworkConfiguration() ([]byte, error) {
-	if g.config.RootVolumeDevice() != nil {
-		// We don't use network config with persistent rootfs
-		// for now because with some cloud-init
+	if g.config.ParsedAnnotations.ForceDHCPNetworkConfig || g.config.RootVolumeDevice() != nil {
+		// Don't use cloud-init network config if asked not
+		// to do so.
+		// Also, we don't use network config with persistent
+		// rootfs for now because with some cloud-init
 		// implementations it's applied only once
 		return nil, nil
 	}
@@ -334,10 +336,10 @@ func (g *CloudInitGenerator) generateNetworkConfigurationConfigDrive() ([]byte, 
 			return nil, err
 		}
 		linkConf := map[string]interface{}{
-			"type": "phy",
-			"id":   iface.Name,
+			"type":                 "phy",
+			"id":                   iface.Name,
 			"ethernet_mac_address": iface.Mac,
-			"mtu": mtu,
+			"mtu":                  mtu,
 		}
 		links = append(links, linkConf)
 	}
