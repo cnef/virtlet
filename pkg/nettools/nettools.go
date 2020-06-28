@@ -37,12 +37,14 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"log"
 	"net"
 	"os"
 	"os/exec"
 	"path"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/containernetworking/cni/pkg/ns"
@@ -886,11 +888,27 @@ func Teardown(csn *network.ContainerSideNetwork) error {
 // hardware address.
 // Copied from:
 // https://github.com/coreos/rkt/blob/56564bac090b44788684040f2ffd66463f29d5d0/stage1/init/kvm/network.go#L71
-func GenerateMacAddress() (net.HardwareAddr, error) {
+func GenerateMacAddress(args ...string) (net.HardwareAddr, error) {
 	mac := net.HardwareAddr{
 		2,          // locally administred unicast
 		0x65, 0x02, // OUI (randomly chosen by jell)
 		0, 0, 0, // bytes to randomly overwrite
+	}
+
+	if len(args) > 0 {
+		fp := strings.Join(args, ";")
+		a := fnv.New32a()
+		a.Write([]byte(fp))
+		bytes := a.Sum(nil)
+
+		if len(bytes) == 4 {
+			mac[1] = 0x64
+			mac[2] = bytes[0]
+			mac[3] = bytes[1]
+			mac[4] = bytes[2]
+			mac[5] = bytes[3]
+			return mac, nil
+		}
 	}
 
 	_, err := rand.Reader.Read(mac[3:6])

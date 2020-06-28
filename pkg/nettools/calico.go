@@ -139,6 +139,20 @@ func FixCalicoNetworking(netConfig *cnicurrent.Result, calicoSubnetSize int, get
 		if !haveCalico {
 			continue
 		}
+
+		fixedHwAddr, err := GenerateMacAddress(fmt.Sprintf("POD_NAMESPACE=%s", podNs), fmt.Sprintf("POD_NAME=%s", podName))
+		if err == nil {
+			err = SetHardwareAddr(link, fixedHwAddr)
+		}
+		if err != nil {
+			glog.Warningf("Set calico interface to fixed hardware addr failed: %v", err)
+		} else {
+			for i, iface := range netConfig.Interfaces {
+				if iface.Name == link.Attrs().Name {
+					netConfig.Interfaces[i].Mac = fixedHwAddr.String()
+				}
+			}
+		}
 		ipConfig.Address.Mask = net.CIDRMask(calicoSubnetSize, 32)
 		if haveCalicoGateway {
 			dummyNetwork, nsPath, err := getDummyNetwork(podID, podName, podNs)
