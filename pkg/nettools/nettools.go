@@ -41,8 +41,8 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"sort"
 	"path"
+	"sort"
 	"time"
 
 	"github.com/containernetworking/cni/pkg/ns"
@@ -508,7 +508,7 @@ func bringUpLoopback() error {
 
 func updateEbTables(nsPath, interfaceName, command string) error {
 	// block/unblock DHCP traffic from/to CNI-provided link
-	for _, item := range []struct{ chain, opt, port string}{
+	for _, item := range []struct{ chain, opt, port string }{
 		// dhcp responses originate from bridge itself
 		{"OUTPUT", "--ip-source-port", "68"},
 		{"OUTPUT", "--ip-source-port", "67"},
@@ -528,18 +528,18 @@ func updateEbTables(nsPath, interfaceName, command string) error {
 }
 
 func disableMacLearning(nsPath string, bridgeName string) error {
-	for i:=0;i<=2;i++ {
+	for i := 0; i <= 2; i++ {
 		var err error
 		if out, err := exec.Command("nsenter", "--net="+nsPath, "brctl", "setageing", bridgeName, "0").CombinedOutput(); err != nil {
 			fmt.Printf("Set ageing error: %s %v %s", nsPath, err, out)
 			continue
 		}
-	
+
 		if out, err := exec.Command("ip", "netns", "exec", path.Base(nsPath), "brctl", "setageing", bridgeName, "0").CombinedOutput(); err != nil {
 			fmt.Printf("Set ageing error: %s %v %s", nsPath, err, out)
 			continue
 		}
-	
+
 		if out, err := exec.Command("ip", "netns", "exec", path.Base(nsPath), "brctl", "stp", bridgeName, "on").CombinedOutput(); err != nil {
 			fmt.Printf("Set stp off: %s %v %s", nsPath, err, out)
 			continue
@@ -564,6 +564,7 @@ func addDummyRoute(nsPath string, bridgeName string) error {
 
 	return nil
 }
+
 // SetHardwareAddr sets hardware address on provided link.
 func SetHardwareAddr(link netlink.Link, hwAddr net.HardwareAddr) error {
 	if err := netlink.LinkSetDown(link); err != nil {
@@ -634,7 +635,7 @@ func setupTapAndGetInterfaceDescription(link netlink.Link, nsPath string, ifaceN
 	}
 	glog.V(3).Infof("Adding interface %q as %q", ifaceName, tapInterfaceName)
 
-	time.Sleep(20 *time.Second)
+	time.Sleep(3 * time.Second)
 	return &network.InterfaceDescription{
 		Type:         network.InterfaceTypeTap,
 		Name:         ifaceName,

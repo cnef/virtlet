@@ -151,15 +151,15 @@ func (v *VirtletRuntimeService) RunPodSandbox(ctx context.Context, in *kubeapi.R
 	var csnBytes []byte
 	var err error
 	for i := 0; i < 10; i++ {
-
 		csnBytes, err = v.fdManager.AddFDs(podID, fdPayload)
 		if err != nil {
+			glog.Errorf("Failed to AddFDs for pod %s (%s) from CNI network: %v, retry: %d", podName, podID, err, i)
 			if fErr := v.fdManager.ReleaseFDs(podID); fErr != nil {
 				glog.Errorf("Error removing pod %s (%s) from CNI network: %v", podName, podID, fErr)
 			}
 		} else {
 			glog.V(3).Infof("Success to AddFDs from CNI network: %v", podID)
-			i = 10
+			break
 		}
 	}
 	// The reason for defer here is that it is also necessary to ReleaseFDs if AddFDs fail
@@ -174,9 +174,6 @@ func (v *VirtletRuntimeService) RunPodSandbox(ctx context.Context, in *kubeapi.R
 			}
 		}
 	}()
-	// if err != nil {
-	// 	return nil, fmt.Errorf("Error adding pod %s (%s) to CNI network: %v", podName, podID, err)
-	// }
 
 	psi, err := metadata.NewPodSandboxInfo(
 		CRIPodSandboxConfigToPodSandboxConfig(config),

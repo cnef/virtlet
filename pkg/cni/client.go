@@ -173,11 +173,12 @@ func handleAddSandboxToNetwork(arg interface{}) (interface{}, error) {
 	rtConf.Args = append(rtConf.Args, [2]string{
 		"K8S_ANNOT", `{"cni": "calico"}`,
 	})
-	glog.V(3).Infof("AddSandboxToNetwork: PodID %q, PodName %q, PodNs %q, runtime config:\n%s",
+	glog.V(3).Infof("AddSandboxToNetwork: PodID %q, PodName %q, PodNs %q, runtime config: %s",
 		req.PodID, req.PodName, req.PodNs, spew.Sdump(rtConf))
+
 	result, err := c.cniConfig.AddNetworkList(c.netConfigList, rtConf)
 	if err == nil {
-		glog.V(3).Infof("AddSandboxToNetwork: PodID %q, PodName %q, PodNs %q: result:\n%s",
+		glog.V(3).Infof("AddSandboxToNetwork: PodID %q, PodName %q, PodNs %q: result: %s",
 			req.PodID, req.PodName, req.PodNs, spew.Sdump(result))
 	} else {
 		glog.Errorf("AddSandboxToNetwork: PodID %q, PodName %q, PodNs %q: error: %v",
