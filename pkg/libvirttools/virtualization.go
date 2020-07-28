@@ -363,9 +363,9 @@ func (v *VirtualizationTool) CreateContainer(config *types.VMConfig, netFdKey st
 		if err := v.removeDomain(settings.domainUUID, config, types.ContainerState_CONTAINER_UNKNOWN, true); err != nil {
 			glog.Warningf("Failed to remove domain %q: %v", settings.domainUUID, err)
 		}
-		if err := diskList.teardown(); err != nil {
-			glog.Warningf("error tearing down volumes after an error: %v", err)
-		}
+		//if err := diskList.teardown(); err != nil {
+		//	glog.Warningf("error tearing down volumes after an error: %v", err)
+		//}
 	}()
 
 	if err := v.addSerialDevicesToDomain(domainDef); err != nil {
@@ -574,15 +574,25 @@ func (v *VirtualizationTool) cleanupVolumes(containerID string) error {
 		return nil
 	}
 
-	diskList, err := newDiskList(config, v.volumeSource, v)
-	if err == nil {
-		err = diskList.teardown()
+	// Give a chance to gracefully stop domain
+	// TODO: handle errors - there could be e.g. lost connection error
+	// keep data exist, should return nil
+	keep, err := v.getKeepDataFlag(config)
+	if err != nil {
+		return err
 	}
 
-	var errs []string
-	if err != nil {
-		glog.Errorf("Volume teardown failed for domain %q: %v", containerID, err)
-		errs = append(errs, err.Error())
+	if !keep {
+		diskList, err := newDiskList(config, v.volumeSource, v)
+		if err == nil {
+			err = diskList.teardown()
+		}
+
+		var errs []string
+		if err != nil {
+			glog.Errorf("Volume teardown failed for domain %q: %v", containerID, err)
+			errs = append(errs, err.Error())
+		}
 	}
 
 	return nil

@@ -18,6 +18,7 @@ package libvirttools
 
 import (
 	"fmt"
+	"os"
 	"sync"
 
 	"github.com/golang/glog"
@@ -132,6 +133,15 @@ func (pool *libvirtStoragePool) CreateStorageVol(def *libvirtxml.StorageVolume) 
 		return nil, err
 	}
 
+	targetPath := fmt.Sprintf("/var/lib/virtlet/volumes/%s", def.Name)
+	glog.V(2).Infof("Creating storage volume, check volume target is exists: %s", targetPath)
+	_, err = os.Stat(targetPath)
+	if err == nil {
+		return nil, fmt.Errorf("failed to create a existed volume %s", targetPath)
+	} else if !os.IsNotExist(err) {
+		return nil, fmt.Errorf("failed to check volume %s stat: %v", targetPath, err)
+	}
+
 	// fresh pool at first
 	if err := pool.p.Refresh(0); err != nil {
 		return nil, fmt.Errorf("failed to refresh the storage pool: %v", err)
@@ -156,6 +166,11 @@ func (pool *libvirtStoragePool) CreateStorageVol(def *libvirtxml.StorageVolume) 
 func (pool *libvirtStoragePool) ListVolumes() ([]virt.StorageVolume, error) {
 	pool.Lock()
 	defer pool.Unlock()
+	// fresh pool at first
+	if err := pool.p.Refresh(0); err != nil {
+		return nil, fmt.Errorf("failed to refresh the storage pool: %v", err)
+	}
+
 	volumes, err := pool.p.ListAllStorageVolumes(0)
 	if err != nil {
 		return nil, err
@@ -176,6 +191,11 @@ func (pool *libvirtStoragePool) ListVolumes() ([]virt.StorageVolume, error) {
 func (pool *libvirtStoragePool) LookupVolumeByName(name string) (virt.StorageVolume, error) {
 	pool.Lock()
 	defer pool.Unlock()
+	// fresh pool at first
+	if err := pool.p.Refresh(0); err != nil {
+		return nil, fmt.Errorf("failed to refresh the storage pool: %v", err)
+	}
+
 	v, err := pool.p.LookupStorageVolByName(name)
 	if err != nil {
 		libvirtErr, ok := err.(libvirt.Error)

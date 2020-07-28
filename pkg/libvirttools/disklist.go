@@ -83,9 +83,10 @@ func (dl *diskList) setup() ([]libvirtxml.DomainDisk, []libvirtxml.DomainFilesys
 		if err != nil {
 			// try to tear down volumes that were already set up
 			for _, item := range dl.items[:n] {
-				if err := item.volume.Teardown(); err != nil {
-					glog.Warningf("Failed to tear down a volume on error: %v", err)
-				}
+				glog.Warningf("Skiped to tear down a volume %v", item.volume.UUID())
+				// if err := item.volume.Teardown(); err != nil {
+				// 	glog.Warningf("Failed to tear down a volume on error: %v", err)
+				// }
 			}
 			return nil, nil, err
 		}
