@@ -76,7 +76,7 @@ func (u *UnixServer) Listen() {
 
 	err = fixOwner(u.SocketPath)
 	if err != nil {
-		glog.Error("%v", err)
+		glog.Errorf("%v", err)
 		return
 	}
 	defer func() {
@@ -98,7 +98,7 @@ func (u *UnixServer) Listen() {
 			if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() {
 				continue
 			}
-			glog.Warningf("accept error:", err)
+			glog.Warningf("accept error:%v", err)
 			continue
 		}
 

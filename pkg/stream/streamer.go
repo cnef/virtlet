@@ -74,7 +74,7 @@ func (s *Server) Attach(containerID string, inputStream io.Reader, outputStream,
 		if inputStream != nil {
 			_, err = CopyDetachable(conn, inputStream, nil)
 			if err != nil {
-				glog.V(1).Info("Attach coppy error: %v", err)
+				glog.V(1).Infof("Attach coppy error: %v", err)
 			}
 			stdinDone <- err
 		}
