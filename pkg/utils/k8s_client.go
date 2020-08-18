@@ -22,6 +22,8 @@ import (
 	"strings"
 
 	"github.com/spf13/pflag"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -49,6 +51,21 @@ func GetK8sClientset(config *rest.Config) (*kubernetes.Clientset, error) {
 		}
 	}
 	return kubernetes.NewForConfig(config)
+}
+
+func GetK8sDynamicClient(config *rest.Config) (*dynamic.Client, error) {
+	if config == nil {
+		var err error
+		config, err = GetK8sClientConfig("")
+		if err != nil {
+			return nil, err
+		}
+	}
+	gv := &schema.GroupVersion{Group: "k8s.kubeup.cn", Version: "v1alpha1"}
+	config.ContentConfig = rest.ContentConfig{GroupVersion: gv}
+	config.APIPath = "/apis"
+
+	return dynamic.NewClient(config)
 }
 
 // wordSepNormalizeFunc change "_" to "-" in the flags.

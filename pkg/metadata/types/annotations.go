@@ -43,6 +43,9 @@ const (
 	libvirtCPUSetting                 = "VirtletLibvirtCPUSetting"
 	sshKeysKeyName                    = "VirtletSSHKeys"
 	chown9pfsMountsKeyName            = "VirtletChown9pfsMounts"
+	systemUUIDKeyName                 = "VirtletSystemUUID"
+	vncPasswordKeyName                = "VirtletVncPassword"
+	osTypeKeyName                     = "VirtletOSType"
 	forceDHCPNetworkConfigKeyName     = "VirtletForceDHCPNetworkConfig"
 	// CloudInitUserDataSourceKeyName is the name of user data source key in the pod annotations.
 	CloudInitUserDataSourceKeyName = "VirtletCloudInitUserDataSource"
@@ -72,6 +75,10 @@ const (
 	CPUModelHostModel = "host-model"
 	// CPUModelHostPassthrough specifies cpu model use host cpu model
 	CPUModelHostPassthrough = "host-passthrough"
+	// OSTypeWindows specifies guest vm is windows
+	OSTypeWindows = "windows"
+	// OSTypeLinux specifies guest vm is linux
+	OSTypeLinux = "linux"
 )
 
 // DiskDriverName specifies disk driver name supported by Virtlet.
@@ -120,6 +127,13 @@ type VirtletAnnotations struct {
 	// configuration and makes it only provide DHCP. Note that this will
 	// not work for multi-CNI configuration.
 	ForceDHCPNetworkConfig bool
+	// SystemUUID specifies fixed UUID to be used for the domain.
+	// If not set, the UUID will be automatically generated from the Pod Name.
+	SystemUUID  string
+	VncPassword string
+	// OSType specifies the image os type is windows or linux
+	// We need use it to fix timezone issue for windows guest os
+	OSType string
 }
 
 // ExternalUserDataLoader is a function that loads external user data that's specified
@@ -312,5 +326,10 @@ func (va *VirtletAnnotations) parsePodAnnotations(ns string, podAnnotations map[
 	if podAnnotations[forceDHCPNetworkConfigKeyName] == "true" {
 		va.ForceDHCPNetworkConfig = true
 	}
+
+	va.SystemUUID = podAnnotations[systemUUIDKeyName]
+	va.VncPassword = podAnnotations[vncPasswordKeyName]
+	va.OSType = podAnnotations[osTypeKeyName]
+
 	return nil
 }

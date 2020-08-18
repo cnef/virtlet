@@ -25,6 +25,7 @@ import (
 	"github.com/golang/glog"
 	"github.com/jonboulle/clockwork"
 	libvirtxml "github.com/libvirt/libvirt-go-xml"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	kubetypes "k8s.io/kubernetes/pkg/kubelet/types"
@@ -78,6 +79,9 @@ type domainSettings struct {
 	netFdKey         string
 	enableSriov      bool
 	cpuModel         string
+	systemUUID       string
+	vncPassword      string
+	osType           string
 }
 
 func (ds *domainSettings) createDomain(config *types.VMConfig) *libvirtxml.Domain {
@@ -96,7 +100,7 @@ func (ds *domainSettings) createDomain(config *types.VMConfig) *libvirtxml.Domai
 				{Type: "tablet", Bus: "usb"},
 			},
 			Graphics: []libvirtxml.DomainGraphic{
-				{VNC: &libvirtxml.DomainGraphicVNC{Port: -1, WebSocket: -1, Listen: "0.0.0.0"}},
+				{VNC: &libvirtxml.DomainGraphicVNC{Port: -1, WebSocket: -1, Listen: "0.0.0.0", Passwd: config.ParsedAnnotations.VncPassword}},
 			},
 			Videos: []libvirtxml.DomainVideo{
 				{Model: libvirtxml.DomainVideoModel{Type: "cirrus"}},
@@ -189,6 +193,12 @@ func (ds *domainSettings) createDomain(config *types.VMConfig) *libvirtxml.Domai
 			// leave it empty
 		default:
 			glog.Warningf("Unknown value set in VIRTLET_CPU_MODEL: %q", ds.cpuModel)
+		}
+	}
+
+	if config.ParsedAnnotations.OSType == types.OSTypeWindows {
+		domain.Clock = &libvirtxml.DomainClock{
+			Offset: "localtime",
 		}
 	}
 
@@ -313,7 +323,10 @@ func (v *VirtualizationTool) CreateContainer(config *types.VMConfig, netFdKey st
 		return "", err
 	}
 
-	domainUUID := utils.NewUUID5(ContainerNsUUID, config.PodName)
+	domainUUID := config.ParsedAnnotations.SystemUUID
+	if len(domainUUID) == 0 {
+		domainUUID = utils.NewUUID5(ContainerNsUUID, config.PodName)
+	}
 	// FIXME: this field should be moved to VMStatus struct (to be added)
 	config.DomainUUID = domainUUID
 	cpuModel := v.config.CPUModel
@@ -335,10 +348,13 @@ func (v *VirtualizationTool) CreateContainer(config *types.VMConfig, netFdKey st
 		// each vCPU by libvirt. Thus, to limit overall VM's CPU
 		// threads consumption by the value from the pod definition
 		// we need to perform this division
-		cpuQuota:   config.CPUQuota / int64(config.ParsedAnnotations.VCPUCount),
-		memoryUnit: "b",
-		useKvm:     !v.config.DisableKVM,
-		cpuModel:   cpuModel,
+		cpuQuota:    config.CPUQuota / int64(config.ParsedAnnotations.VCPUCount),
+		memoryUnit:  "b",
+		useKvm:      !v.config.DisableKVM,
+		cpuModel:    cpuModel,
+		systemUUID:  config.ParsedAnnotations.SystemUUID,
+		vncPassword: config.ParsedAnnotations.VncPassword,
+		osType:      config.ParsedAnnotations.OSType,
 	}
 	if settings.memory == 0 {
 		settings.memory = defaultMemory
@@ -480,6 +496,7 @@ func (v *VirtualizationTool) StartContainer(containerID string) error {
 // VM info from metadata store.
 // Succeeded removal of metadata is followed by volumes cleanup.
 func (v *VirtualizationTool) StopContainer(containerID string, timeout time.Duration) error {
+	glog.V(3).Infof("Going to stop container %s", containerID)
 	domain, err := v.domainConn.LookupDomainByUUIDString(containerID)
 	if err != nil {
 		return err
@@ -564,6 +581,7 @@ func (v *VirtualizationTool) getVMConfigFromMetadata(containerID string) (*types
 }
 
 func (v *VirtualizationTool) cleanupVolumes(containerID string) error {
+	glog.V(3).Infof("Going to cleanupVolumes %s", containerID)
 	config, _, err := v.getVMConfigFromMetadata(containerID)
 	if err != nil {
 		return err
@@ -598,9 +616,21 @@ func (v *VirtualizationTool) cleanupVolumes(containerID string) error {
 	return nil
 }
 
+var (
+	//  Create a GVR which represents an VirtMachine crd.
+	virtMachineResource = metav1.APIResource{
+		Name:         "virtmachines",
+		Group:        "k8s.kubeup.cn",
+		SingularName: "vm",
+		Namespaced:   true,
+		Kind:         "VirtMachine",
+		Version:      "v1alpha1",
+	}
+)
+
 func (v *VirtualizationTool) getKeepDataFlag(config *types.VMConfig) (bool, error) {
 
-	clientset, err := utils.GetK8sClientset(nil)
+	dynamicClient, err := utils.GetK8sDynamicClient(nil)
 	if err != nil {
 		glog.Errorf("K8s client get error %v", err)
 		return true, err
@@ -609,22 +639,27 @@ func (v *VirtualizationTool) getKeepDataFlag(config *types.VMConfig) (bool, erro
 	podNamespace := config.PodNamespace
 	podName := config.PodName
 
-	pod, err := clientset.CoreV1().Pods(podNamespace).Get(podName, metav1.GetOptions{})
-	if err != nil {
-		glog.Errorf("Get pod annot error: %v", err)
+	virtMachine, err := dynamicClient.Resource(&virtMachineResource, podNamespace).Get(podName, metav1.GetOptions{})
+	if err != nil && errors.IsNotFound(err) {
+		glog.V(3).Infof("VirtMachine %s not found, should REMOVE data", podName)
+		return false, nil
+	} else if err != nil {
+		glog.Errorf("Get virtMachine error: %v", err)
 		// pod maybe under shutdown status
 		return true, nil
 	}
 
-	if pod.Annotations["virt-machine-deletion"] == "keep-data" {
-		glog.Infof("Found keep-data annot, skip remove domain: %s", podName)
+	if !virtMachine.GetDeletionTimestamp().IsZero() {
+		glog.Infof("VirtMachine %s found, but deletion time not zero, should REMOVE data", podName)
 		return true, nil
 	}
-	glog.Infof("Not found keep-data annot, remove domain: %s", podName)
-	return false, nil
+
+	glog.Infof("VirtMachine %s found, and deletion time is zero, should KEEP data", podName)
+	return true, nil
 }
 
 func (v *VirtualizationTool) removeDomain(containerID string, config *types.VMConfig, state types.ContainerState, failUponVolumeTeardownFailure bool) error {
+	glog.V(3).Infof("Going to removeDomain %s", containerID)
 	// Give a chance to gracefully stop domain
 	// TODO: handle errors - there could be e.g. lost connection error
 	// keep data exist, should return nil
@@ -891,6 +926,16 @@ func (v *VirtualizationTool) VMStats(containerID string, name string) (*types.VM
 		Timestamp:   v.clock.Now().UnixNano(),
 		ContainerID: containerID,
 		Name:        name,
+	}
+
+	state, err := domain.State()
+	if err != nil {
+		return nil, err
+	}
+
+	if state != virt.DomainStateRunning {
+		glog.V(4).Infof("Domain %s is not running, skip collect stats", containerID)
+		return &vs, nil
 	}
 
 	rss, err := domain.GetRSS()

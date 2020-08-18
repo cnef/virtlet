@@ -102,6 +102,8 @@ func (v *VirtletRuntimeService) Version(ctx context.Context, in *kubeapi.Version
 
 // RunPodSandbox implements RunPodSandbox method of CRI.
 func (v *VirtletRuntimeService) RunPodSandbox(ctx context.Context, in *kubeapi.RunPodSandboxRequest) (response *kubeapi.RunPodSandboxResponse, retErr error) {
+	glog.V(3).Infof("Virtlet runtime RunPodSandbox: %v", in.Config.Metadata.Uid)
+
 	config := in.GetConfig()
 	if config == nil {
 		return nil, errors.New("no pod sandbox config passed to RunPodSandbox")
@@ -198,6 +200,8 @@ func (v *VirtletRuntimeService) RunPodSandbox(ctx context.Context, in *kubeapi.R
 
 // StopPodSandbox implements StopPodSandbox method of CRI.
 func (v *VirtletRuntimeService) StopPodSandbox(ctx context.Context, in *kubeapi.StopPodSandboxRequest) (*kubeapi.StopPodSandboxResponse, error) {
+	glog.V(3).Infof("Virtlet runtime StopPodSandbox: %v", in.PodSandboxId)
+
 	sandbox := v.metadataStore.PodSandbox(in.PodSandboxId)
 	switch sandboxInfo, err := sandbox.Retrieve(); {
 	case err != nil:
@@ -229,6 +233,7 @@ func (v *VirtletRuntimeService) StopPodSandbox(ctx context.Context, in *kubeapi.
 
 // RemovePodSandbox method implements RemovePodSandbox from CRI.
 func (v *VirtletRuntimeService) RemovePodSandbox(ctx context.Context, in *kubeapi.RemovePodSandboxRequest) (*kubeapi.RemovePodSandboxResponse, error) {
+	glog.V(3).Infof("Virtlet runtime RemovePodSandbox: %v", in.PodSandboxId)
 	podSandboxID := in.PodSandboxId
 
 	if err := v.metadataStore.PodSandbox(podSandboxID).Save(
