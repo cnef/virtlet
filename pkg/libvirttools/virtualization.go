@@ -651,7 +651,7 @@ func (v *VirtualizationTool) getKeepDataFlag(config *types.VMConfig) (bool, erro
 
 	if !virtMachine.GetDeletionTimestamp().IsZero() {
 		glog.Infof("VirtMachine %s found, but deletion time not zero, should REMOVE data", podName)
-		return true, nil
+		return false, nil
 	}
 
 	glog.Infof("VirtMachine %s found, and deletion time is zero, should KEEP data", podName)

@@ -25,6 +25,7 @@ import (
 	"github.com/Mirantis/virtlet/pkg/blockdev"
 	"github.com/Mirantis/virtlet/pkg/metadata"
 	"github.com/Mirantis/virtlet/pkg/metadata/types"
+	"github.com/golang/glog"
 )
 
 const (
@@ -44,10 +45,11 @@ func (v *VirtualizationTool) GarbageCollect() (allErrors []error) {
 	}
 
 	allErrors = append(allErrors, v.removeOrphanDomains(ids)...)
-	allErrors = append(allErrors, v.removeOrphanRootVolumes(ids)...)
-	allErrors = append(allErrors, v.removeOrphanQcow2Volumes(ids)...)
-	allErrors = append(allErrors, v.removeOrphanConfigImages(ids, configIsoDir)...)
-	allErrors = append(allErrors, v.removeOrphanVirtualBlockDevices(ids, "", "")...)
+	// Don't remove volumes, persist vm needs to keep data
+	//	allErrors = append(allErrors, v.removeOrphanRootVolumes(ids)...)
+	//	allErrors = append(allErrors, v.removeOrphanQcow2Volumes(ids)...)
+	//	allErrors = append(allErrors, v.removeOrphanConfigImages(ids, configIsoDir)...)
+	//	allErrors = append(allErrors, v.removeOrphanVirtualBlockDevices(ids, "", "")...)
 
 	return
 }
@@ -93,6 +95,11 @@ func (v *VirtualizationTool) checkSandboxNetNs(sandbox metadata.PodSandboxMetada
 	sinfo, err := sandbox.Retrieve()
 	if err != nil {
 		return err
+	}
+
+	if sinfo == nil || sinfo.ContainerSideNetwork == nil {
+		glog.V(4).Infof("Retrieved sandbox %v info is: %+v", sandbox.GetID(), sinfo)
+		return nil
 	}
 
 	if !v.mountPointChecker.IsPathAnNs(sinfo.ContainerSideNetwork.NsPath) {

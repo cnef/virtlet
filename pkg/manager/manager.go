@@ -24,7 +24,7 @@ import (
 	"github.com/golang/glog"
 	"k8s.io/client-go/tools/clientcmd"
 
-	"github.com/Mirantis/virtlet/pkg/api/virtlet.k8s/v1"
+	v1 "github.com/Mirantis/virtlet/pkg/api/virtlet.k8s/v1"
 	"github.com/Mirantis/virtlet/pkg/diag"
 	"github.com/Mirantis/virtlet/pkg/image"
 	"github.com/Mirantis/virtlet/pkg/imagetranslation"
@@ -148,10 +148,10 @@ func (v *VirtletManager) Run() error {
 	v.server = NewServer()
 	v.server.Register(runtimeService, imageService)
 
-	// if err := v.recoverAndGC(); err != nil {
-	// 	// we consider recover / gc errors non-fatal
-	// 	glog.Warning(err)
-	// }
+	if err := v.recoverAndGC(); err != nil {
+		// we consider recover / gc errors non-fatal
+		glog.Warningf("Recover and GC has error: %v", err)
+	}
 
 	glog.V(1).Infof("Starting server on socket %s", *v.config.CRISocketPath)
 	if err = v.server.Serve(*v.config.CRISocketPath); err != nil {
@@ -173,17 +173,19 @@ func (v *VirtletManager) Stop() {
 // garbage collection for both libvirt and the image store.
 func (v *VirtletManager) recoverAndGC() error {
 	var errors []string
-	for _, err := range v.recoverNetworkNamespaces() {
-		errors = append(errors, fmt.Sprintf("* error recovering VM network namespaces: %v", err))
-	}
 
 	for _, err := range v.virtTool.GarbageCollect() {
 		errors = append(errors, fmt.Sprintf("* error performing libvirt GC: %v", err))
 	}
 
-	if err := v.imageStore.GC(); err != nil {
-		errors = append(errors, fmt.Sprintf("* error during image GC: %v", err))
+	for _, err := range v.recoverNetworkNamespaces() {
+		errors = append(errors, fmt.Sprintf("* error recovering VM network namespaces: %v", err))
 	}
+	// Don't GC image, because image maybe use by other node
+	// when use nfs to share image for vm cross node scheduling
+	// if err := v.imageStore.GC(); err != nil {
+	// 	errors = append(errors, fmt.Sprintf("* error during image GC: %v", err))
+	// }
 
 	if len(errors) == 0 {
 		return nil
@@ -202,7 +204,6 @@ func (v *VirtletManager) recoverNetworkNamespaces() (allErrors []error) {
 		return
 	}
 
-OUTER:
 	for _, s := range sandboxes {
 		psi, err := s.Retrieve()
 		if err != nil {
@@ -213,25 +214,22 @@ OUTER:
 			allErrors = append(allErrors, fmt.Errorf("inconsistent database. Found pod %q sandbox but can not retrive its metadata", s.GetID()))
 			continue
 		}
-
-		haveRunningContainers := false
-		containers, err := v.metadataStore.ListPodContainers(s.GetID())
-		if err != nil {
-			allErrors = append(allErrors, fmt.Errorf("can't retrieve ContainerMetadata list for pod %q: %v", s.GetID(), err))
-			continue
-		}
-		for _, c := range containers {
-			ci, err := v.virtTool.ContainerInfo(c.GetID())
-			if err != nil {
-				allErrors = append(allErrors, fmt.Errorf("can't verify container status for container %q in pod %q: %v", c.GetID(), s.GetID(), err))
-				continue OUTER
-			}
-			if ci.State == types.ContainerState_CONTAINER_RUNNING {
-				haveRunningContainers = true
+		glog.V(3).Infof("Clean network namespace: %+v", s)
+		if psi.State != types.PodSandboxState_SANDBOX_NOTREADY {
+			if err = s.Save(
+				func(c *types.PodSandboxInfo) (*types.PodSandboxInfo, error) {
+					// make sure the pod is not removed during the call
+					if c != nil {
+						c.State = types.PodSandboxState_SANDBOX_NOTREADY
+					}
+					return c, nil
+				},
+			); err != nil {
+				allErrors = append(allErrors, fmt.Errorf("Error update pod %q sandbox metadata: %v", s.GetID(), err))
+				continue
 			}
 		}
-
-		if err := v.fdManager.Recover(
+		if err := v.fdManager.CleanFDs(
 			s.GetID(),
 			tapmanager.RecoverPayload{
 				Description: &tapmanager.PodNetworkDesc{
@@ -239,11 +237,10 @@ OUTER:
 					PodNs:   psi.Config.Namespace,
 					PodName: psi.Config.Name,
 				},
-				ContainerSideNetwork:  psi.ContainerSideNetwork,
-				HaveRunningContainers: haveRunningContainers,
+				ContainerSideNetwork: psi.ContainerSideNetwork,
 			},
 		); err != nil {
-			allErrors = append(allErrors, fmt.Errorf("error recovering netns for %q pod: %v", s.GetID(), err))
+			allErrors = append(allErrors, fmt.Errorf("error clean netns for %q pod: %v", s.GetID(), err))
 		}
 	}
 	return

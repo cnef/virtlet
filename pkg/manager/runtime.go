@@ -250,6 +250,8 @@ func (v *VirtletRuntimeService) RemovePodSandbox(ctx context.Context, in *kubeap
 
 // PodSandboxStatus method implements PodSandboxStatus from CRI.
 func (v *VirtletRuntimeService) PodSandboxStatus(ctx context.Context, in *kubeapi.PodSandboxStatusRequest) (*kubeapi.PodSandboxStatusResponse, error) {
+	glog.V(4).Infof("Virtlet runtime PodSandboxStatus: %v", in.PodSandboxId)
+
 	podSandboxID := in.PodSandboxId
 
 	sandbox := v.metadataStore.PodSandbox(podSandboxID)
@@ -272,12 +274,16 @@ func (v *VirtletRuntimeService) PodSandboxStatus(ctx context.Context, in *kubeap
 		status.Network = &kubeapi.PodSandboxNetworkStatus{Ip: ip}
 	}
 
+	glog.V(4).Infof("Virtlet runtime PodSandboxStatus resp: %+v", status)
+
 	response := &kubeapi.PodSandboxStatusResponse{Status: status}
 	return response, nil
 }
 
 // ListPodSandbox method implements ListPodSandbox from CRI.
 func (v *VirtletRuntimeService) ListPodSandbox(ctx context.Context, in *kubeapi.ListPodSandboxRequest) (*kubeapi.ListPodSandboxResponse, error) {
+	glog.V(4).Infof("Virtlet runtime ListPodSandbox: %+v", in.Filter)
+
 	filter := CRIPodSandboxFilterToPodSandboxFilter(in.GetFilter())
 	sandboxes, err := v.metadataStore.ListPodSandboxes(filter)
 	if err != nil {
@@ -293,6 +299,8 @@ func (v *VirtletRuntimeService) ListPodSandbox(ctx context.Context, in *kubeapi.
 			podSandboxList = append(podSandboxList, PodSandboxInfoToCRIPodSandbox(sandboxInfo))
 		}
 	}
+	glog.V(4).Infof("Virtlet runtime ListPodSandbox resp: %+v", podSandboxList)
+
 	response := &kubeapi.ListPodSandboxResponse{Items: podSandboxList}
 	return response, nil
 }
@@ -303,6 +311,8 @@ func (v *VirtletRuntimeService) ListPodSandbox(ctx context.Context, in *kubeapi.
 
 // CreateContainer method implements CreateContainer from CRI.
 func (v *VirtletRuntimeService) CreateContainer(ctx context.Context, in *kubeapi.CreateContainerRequest) (*kubeapi.CreateContainerResponse, error) {
+	glog.V(3).Infof("Virtlet runtime CreateContainer: %v", in.PodSandboxId)
+
 	config := in.GetConfig()
 	podSandboxID := in.PodSandboxId
 	name := config.GetMetadata().Name
@@ -351,6 +361,8 @@ func (v *VirtletRuntimeService) CreateContainer(ctx context.Context, in *kubeapi
 
 // StartContainer method implements StartContainer from CRI.
 func (v *VirtletRuntimeService) StartContainer(ctx context.Context, in *kubeapi.StartContainerRequest) (*kubeapi.StartContainerResponse, error) {
+	glog.V(3).Infof("Virtlet runtime StartContainer: %v", in.ContainerId)
+
 	info, err := v.virtTool.ContainerInfo(in.ContainerId)
 	if err == nil && info != nil && info.State == types.ContainerState_CONTAINER_RUNNING {
 		glog.V(2).Infof("StartContainer: Container %s is already running", in.ContainerId)
@@ -367,6 +379,8 @@ func (v *VirtletRuntimeService) StartContainer(ctx context.Context, in *kubeapi.
 
 // StopContainer method implements StopContainer from CRI.
 func (v *VirtletRuntimeService) StopContainer(ctx context.Context, in *kubeapi.StopContainerRequest) (*kubeapi.StopContainerResponse, error) {
+	glog.V(3).Infof("Virtlet runtime StopContainer: %v", in.ContainerId)
+
 	if err := v.virtTool.StopContainer(in.ContainerId, time.Duration(in.Timeout)*time.Second); err != nil {
 		return nil, err
 	}
@@ -376,6 +390,8 @@ func (v *VirtletRuntimeService) StopContainer(ctx context.Context, in *kubeapi.S
 
 // RemoveContainer method implements RemoveContainer from CRI.
 func (v *VirtletRuntimeService) RemoveContainer(ctx context.Context, in *kubeapi.RemoveContainerRequest) (*kubeapi.RemoveContainerResponse, error) {
+	glog.V(3).Infof("Virtlet runtime StopContainer: %v", in.ContainerId)
+
 	if err := v.virtTool.RemoveContainer(in.ContainerId); err != nil {
 		return nil, err
 	}
@@ -390,6 +406,8 @@ func (v *VirtletRuntimeService) RemoveContainer(ctx context.Context, in *kubeapi
 
 // ListContainers method implements ListContainers from CRI.
 func (v *VirtletRuntimeService) ListContainers(ctx context.Context, in *kubeapi.ListContainersRequest) (*kubeapi.ListContainersResponse, error) {
+	glog.V(4).Infof("Virtlet runtime ListContainers: %+v", in.Filter)
+
 	filter := CRIContainerFilterToContainerFilter(in.GetFilter())
 	containers, err := v.virtTool.ListContainers(filter)
 	if err != nil {
@@ -399,12 +417,16 @@ func (v *VirtletRuntimeService) ListContainers(ctx context.Context, in *kubeapi.
 	for _, c := range containers {
 		r = append(r, ContainerInfoToCRIContainer(c))
 	}
+	glog.V(4).Infof("Virtlet runtime ListContainers resp: %+v", r)
+
 	response := &kubeapi.ListContainersResponse{Containers: r}
 	return response, nil
 }
 
 // ContainerStatus method implements ContainerStatus from CRI.
 func (v *VirtletRuntimeService) ContainerStatus(ctx context.Context, in *kubeapi.ContainerStatusRequest) (*kubeapi.ContainerStatusResponse, error) {
+	glog.V(4).Infof("Virtlet runtime ContainerStatus: %v", in.ContainerId)
+
 	info, err := v.virtTool.ContainerInfo(in.ContainerId)
 	if err != nil {
 		return nil, err
@@ -419,6 +441,7 @@ func (v *VirtletRuntimeService) ContainerStatus(ctx context.Context, in *kubeapi
 			},
 		}, nil
 	}
+	glog.V(4).Infof("Virtlet runtime ContainerStatus resp: %v", ContainerInfoToCRIContainerStatus(info))
 
 	response := &kubeapi.ContainerStatusResponse{Status: ContainerInfoToCRIContainerStatus(info)}
 	return response, nil

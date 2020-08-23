@@ -396,7 +396,7 @@ func (s *TapFDSource) setupNetNS(key string, pnd *PodNetworkDesc, initNet func(n
 		}
 
 		dhcpServer = dhcp.NewServer(csn)
-		glog.Warningf("Setup calico dhcp server")
+		glog.V(2).Info("Setup calico dhcp server")
 		if err := dhcpServer.SetupListener("0.0.0.0"); err != nil {
 			return fmt.Errorf("Failed to set up dhcp listener: %v", err)
 		}
@@ -426,5 +426,69 @@ func (s *TapFDSource) setupNetNS(key string, pnd *PodNetworkDesc, initNet func(n
 		dhcpServer: dhcpServer,
 		doneCh:     doneCh,
 	}
+	return nil
+}
+
+// Clean destroy any associated resources when virtlet
+// pod restarted
+func (s *TapFDSource) Clean(key string, data []byte) error {
+	glog.V(3).Infof("Clean FDs: %v", key)
+	var payload RecoverPayload
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return fmt.Errorf("error unmarshalling CleanFD payload: %v", err)
+	}
+	pnd := payload.Description
+
+	// Try to keep this function idempotent even if there are errors during the following calls.
+	// This can cause some resource leaks in multiple CNI case but makes it possible
+	// to call `RunPodSandbox` again after a failed attempt. Failing to do so would cause
+	// the next `RunPodSandbox` call to fail due to the netns already being present.
+	defer func() {
+		podID := utils.NewUUID5(pnd.PodID, "dummy")
+		if err := cni.DestroyNetNS(podID); err != nil {
+			glog.Errorf("Error when removing Dummy network namespace for pod sandbox %q: %v", podID, err)
+		}
+
+		if err := cni.DestroyNetNS(pnd.PodID); err != nil {
+			glog.Errorf("Error when removing network namespace for pod sandbox %q: %v", pnd.PodID, err)
+		}
+
+	}()
+
+	csn := payload.ContainerSideNetwork
+	if csn == nil {
+		glog.V(3).Infof("No ContainerSideNetwork data passed to Clean()")
+	} else {
+
+		netNSPath := cni.PodNetNSPath(pnd.PodID)
+		vmNS, err := ns.GetNS(netNSPath)
+		if err != nil {
+			return fmt.Errorf("failed to open network namespace at %q: %v", netNSPath, err)
+		}
+
+		if csn.Result == nil {
+			csn.Result = &cnicurrent.Result{}
+		}
+		if err := nettools.ReconstructVFs(csn, vmNS, false); err != nil {
+			glog.Errorf("failed to reconstruct SR-IOV devices: %v", err)
+		}
+
+		if err := vmNS.Do(func(ns.NetNS) error {
+			return nettools.Teardown(csn)
+		}); err != nil {
+			glog.Errorf("failed to teardown network: %v", err)
+		}
+	}
+
+	//only warning if remove dummy failed
+	podID := utils.NewUUID5(pnd.PodID, "dummy")
+	if err := s.cniClient.RemoveSandboxFromNetwork(podID, pnd.PodName+"dummy", pnd.PodNs); err != nil {
+		glog.Errorf("error removing dummy pod sandbox %q from CNI network: %v", podID, err)
+	}
+
+	if err := s.cniClient.RemoveSandboxFromNetwork(pnd.PodID, pnd.PodName, pnd.PodNs); err != nil {
+		glog.Errorf("error removing pod sandbox %q from CNI network: %v", pnd.PodID, err)
+	}
+
 	return nil
 }

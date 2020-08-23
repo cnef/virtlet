@@ -228,7 +228,9 @@ func (t *http2Server) HandleStreams(handle func(*Stream)) {
 	// Check the validity of client preface.
 	preface := make([]byte, len(clientPreface))
 	if _, err := io.ReadFull(t.conn, preface); err != nil {
-		grpclog.Printf("transport: http2Server.HandleStreams failed to receive the preface from client: %v", err)
+		if err != io.EOF {
+			grpclog.Printf("transport: http2Server.HandleStreams failed to receive the preface from client: %v", err)
+		}
 		t.Close()
 		return
 	}

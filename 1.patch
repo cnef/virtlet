@@ -1,0 +1,491 @@
+diff --git a/pkg/libvirttools/gc.go b/pkg/libvirttools/gc.go
+index 0ed1f0f3..0f9e6eea 100644
+--- a/pkg/libvirttools/gc.go
++++ b/pkg/libvirttools/gc.go
+@@ -25,6 +25,7 @@ import (
+ 	"github.com/Mirantis/virtlet/pkg/blockdev"
+ 	"github.com/Mirantis/virtlet/pkg/metadata"
+ 	"github.com/Mirantis/virtlet/pkg/metadata/types"
++	"github.com/golang/glog"
+ )
+ 
+ const (
+@@ -44,10 +45,11 @@ func (v *VirtualizationTool) GarbageCollect() (allErrors []error) {
+ 	}
+ 
+ 	allErrors = append(allErrors, v.removeOrphanDomains(ids)...)
+-	allErrors = append(allErrors, v.removeOrphanRootVolumes(ids)...)
+-	allErrors = append(allErrors, v.removeOrphanQcow2Volumes(ids)...)
+-	allErrors = append(allErrors, v.removeOrphanConfigImages(ids, configIsoDir)...)
+-	allErrors = append(allErrors, v.removeOrphanVirtualBlockDevices(ids, "", "")...)
++	// Don't remove volumes, persist vm needs to keep data
++	//	allErrors = append(allErrors, v.removeOrphanRootVolumes(ids)...)
++	//	allErrors = append(allErrors, v.removeOrphanQcow2Volumes(ids)...)
++	//	allErrors = append(allErrors, v.removeOrphanConfigImages(ids, configIsoDir)...)
++	//	allErrors = append(allErrors, v.removeOrphanVirtualBlockDevices(ids, "", "")...)
+ 
+ 	return
+ }
+@@ -95,6 +97,11 @@ func (v *VirtualizationTool) checkSandboxNetNs(sandbox metadata.PodSandboxMetada
+ 		return err
+ 	}
+ 
++	if sinfo == nil || sinfo.ContainerSideNetwork == nil {
++		glog.V(4).Infof("Retrieved sandbox %v info is: %+v", sandbox.GetID(), sinfo)
++		return nil
++	}
++
+ 	if !v.mountPointChecker.IsPathAnNs(sinfo.ContainerSideNetwork.NsPath) {
+ 		containers, err := v.metadataStore.ListPodContainers(sandbox.GetID())
+ 		if err != nil {
+diff --git a/pkg/libvirttools/root_volumesource.go b/pkg/libvirttools/root_volumesource.go
+index d3cf2af6..a363d0df 100644
+--- a/pkg/libvirttools/root_volumesource.go
++++ b/pkg/libvirttools/root_volumesource.go
+@@ -77,11 +77,12 @@ func (v *rootVolume) createVolume() (virt.StorageVolume, error) {
+ 		return nil, err
+ 	}
+ 	for n, v := range vols {
+-		glog.V(3).Infof("createVolume %d vols: %v", n, v.Name)
++		glog.V(3).Infof("storage pool existed vol: %d, %v", n, v.Name())
+ 	}
+ 
+ 	exist, err := storagePool.LookupVolumeByName(v.volumeName())
+ 	if err == nil {
++		glog.V(3).Infof("vol %v existed, skip create", v.volumeName())
+ 		return exist, err
+ 	}
+ 
+diff --git a/pkg/libvirttools/virtualization.go b/pkg/libvirttools/virtualization.go
+index 71843b43..6e159497 100644
+--- a/pkg/libvirttools/virtualization.go
++++ b/pkg/libvirttools/virtualization.go
+@@ -651,7 +651,7 @@ func (v *VirtualizationTool) getKeepDataFlag(config *types.VMConfig) (bool, erro
+ 
+ 	if !virtMachine.GetDeletionTimestamp().IsZero() {
+ 		glog.Infof("VirtMachine %s found, but deletion time not zero, should REMOVE data", podName)
+-		return true, nil
++		return false, nil
+ 	}
+ 
+ 	glog.Infof("VirtMachine %s found, and deletion time is zero, should KEEP data", podName)
+diff --git a/pkg/manager/manager.go b/pkg/manager/manager.go
+index b96e8930..4c2f2981 100644
+--- a/pkg/manager/manager.go
++++ b/pkg/manager/manager.go
+@@ -24,7 +24,7 @@ import (
+ 	"github.com/golang/glog"
+ 	"k8s.io/client-go/tools/clientcmd"
+ 
+-	"github.com/Mirantis/virtlet/pkg/api/virtlet.k8s/v1"
++	v1 "github.com/Mirantis/virtlet/pkg/api/virtlet.k8s/v1"
+ 	"github.com/Mirantis/virtlet/pkg/diag"
+ 	"github.com/Mirantis/virtlet/pkg/image"
+ 	"github.com/Mirantis/virtlet/pkg/imagetranslation"
+@@ -148,10 +148,10 @@ func (v *VirtletManager) Run() error {
+ 	v.server = NewServer()
+ 	v.server.Register(runtimeService, imageService)
+ 
+-	// if err := v.recoverAndGC(); err != nil {
+-	// 	// we consider recover / gc errors non-fatal
+-	// 	glog.Warning(err)
+-	// }
++	if err := v.recoverAndGC(); err != nil {
++		// we consider recover / gc errors non-fatal
++		glog.Warningf("Recover and GC has error: %v", err)
++	}
+ 
+ 	glog.V(1).Infof("Starting server on socket %s", *v.config.CRISocketPath)
+ 	if err = v.server.Serve(*v.config.CRISocketPath); err != nil {
+@@ -173,17 +173,19 @@ func (v *VirtletManager) Stop() {
+ // garbage collection for both libvirt and the image store.
+ func (v *VirtletManager) recoverAndGC() error {
+ 	var errors []string
+-	for _, err := range v.recoverNetworkNamespaces() {
+-		errors = append(errors, fmt.Sprintf("* error recovering VM network namespaces: %v", err))
+-	}
+ 
+ 	for _, err := range v.virtTool.GarbageCollect() {
+ 		errors = append(errors, fmt.Sprintf("* error performing libvirt GC: %v", err))
+ 	}
+ 
+-	if err := v.imageStore.GC(); err != nil {
+-		errors = append(errors, fmt.Sprintf("* error during image GC: %v", err))
++	for _, err := range v.recoverNetworkNamespaces() {
++		errors = append(errors, fmt.Sprintf("* error recovering VM network namespaces: %v", err))
+ 	}
++	// Don't GC image, because image maybe use by other node
++	// when use nfs to share image for vm cross node scheduling
++	// if err := v.imageStore.GC(); err != nil {
++	// 	errors = append(errors, fmt.Sprintf("* error during image GC: %v", err))
++	// }
+ 
+ 	if len(errors) == 0 {
+ 		return nil
+@@ -202,7 +204,6 @@ func (v *VirtletManager) recoverNetworkNamespaces() (allErrors []error) {
+ 		return
+ 	}
+ 
+-OUTER:
+ 	for _, s := range sandboxes {
+ 		psi, err := s.Retrieve()
+ 		if err != nil {
+@@ -213,25 +214,22 @@ OUTER:
+ 			allErrors = append(allErrors, fmt.Errorf("inconsistent database. Found pod %q sandbox but can not retrive its metadata", s.GetID()))
+ 			continue
+ 		}
+-
+-		haveRunningContainers := false
+-		containers, err := v.metadataStore.ListPodContainers(s.GetID())
+-		if err != nil {
+-			allErrors = append(allErrors, fmt.Errorf("can't retrieve ContainerMetadata list for pod %q: %v", s.GetID(), err))
+-			continue
+-		}
+-		for _, c := range containers {
+-			ci, err := v.virtTool.ContainerInfo(c.GetID())
+-			if err != nil {
+-				allErrors = append(allErrors, fmt.Errorf("can't verify container status for container %q in pod %q: %v", c.GetID(), s.GetID(), err))
+-				continue OUTER
+-			}
+-			if ci.State == types.ContainerState_CONTAINER_RUNNING {
+-				haveRunningContainers = true
++		glog.V(3).Infof("Clean network namespace: %+v", s)
++		if psi.State != types.PodSandboxState_SANDBOX_NOTREADY {
++			if err = s.Save(
++				func(c *types.PodSandboxInfo) (*types.PodSandboxInfo, error) {
++					// make sure the pod is not removed during the call
++					if c != nil {
++						c.State = types.PodSandboxState_SANDBOX_NOTREADY
++					}
++					return c, nil
++				},
++			); err != nil {
++				allErrors = append(allErrors, fmt.Errorf("Error update pod %q sandbox metadata: %v", s.GetID(), err))
++				continue
+ 			}
+ 		}
+-
+-		if err := v.fdManager.Recover(
++		if err := v.fdManager.CleanFDs(
+ 			s.GetID(),
+ 			tapmanager.RecoverPayload{
+ 				Description: &tapmanager.PodNetworkDesc{
+@@ -239,11 +237,10 @@ OUTER:
+ 					PodNs:   psi.Config.Namespace,
+ 					PodName: psi.Config.Name,
+ 				},
+-				ContainerSideNetwork:  psi.ContainerSideNetwork,
+-				HaveRunningContainers: haveRunningContainers,
++				ContainerSideNetwork: psi.ContainerSideNetwork,
+ 			},
+ 		); err != nil {
+-			allErrors = append(allErrors, fmt.Errorf("error recovering netns for %q pod: %v", s.GetID(), err))
++			allErrors = append(allErrors, fmt.Errorf("error clean netns for %q pod: %v", s.GetID(), err))
+ 		}
+ 	}
+ 	return
+diff --git a/pkg/manager/runtime.go b/pkg/manager/runtime.go
+index 319455bf..4284f396 100644
+--- a/pkg/manager/runtime.go
++++ b/pkg/manager/runtime.go
+@@ -250,6 +250,8 @@ func (v *VirtletRuntimeService) RemovePodSandbox(ctx context.Context, in *kubeap
+ 
+ // PodSandboxStatus method implements PodSandboxStatus from CRI.
+ func (v *VirtletRuntimeService) PodSandboxStatus(ctx context.Context, in *kubeapi.PodSandboxStatusRequest) (*kubeapi.PodSandboxStatusResponse, error) {
++	glog.V(3).Infof("Virtlet runtime PodSandboxStatus: %v", in.PodSandboxId)
++
+ 	podSandboxID := in.PodSandboxId
+ 
+ 	sandbox := v.metadataStore.PodSandbox(podSandboxID)
+@@ -272,12 +274,16 @@ func (v *VirtletRuntimeService) PodSandboxStatus(ctx context.Context, in *kubeap
+ 		status.Network = &kubeapi.PodSandboxNetworkStatus{Ip: ip}
+ 	}
+ 
++	glog.V(3).Infof("Virtlet runtime PodSandboxStatus resp: %+v", status)
++
+ 	response := &kubeapi.PodSandboxStatusResponse{Status: status}
+ 	return response, nil
+ }
+ 
+ // ListPodSandbox method implements ListPodSandbox from CRI.
+ func (v *VirtletRuntimeService) ListPodSandbox(ctx context.Context, in *kubeapi.ListPodSandboxRequest) (*kubeapi.ListPodSandboxResponse, error) {
++	glog.V(3).Infof("Virtlet runtime ListPodSandbox: %+v", in.Filter)
++
+ 	filter := CRIPodSandboxFilterToPodSandboxFilter(in.GetFilter())
+ 	sandboxes, err := v.metadataStore.ListPodSandboxes(filter)
+ 	if err != nil {
+@@ -293,6 +299,8 @@ func (v *VirtletRuntimeService) ListPodSandbox(ctx context.Context, in *kubeapi.
+ 			podSandboxList = append(podSandboxList, PodSandboxInfoToCRIPodSandbox(sandboxInfo))
+ 		}
+ 	}
++	glog.V(3).Infof("Virtlet runtime ListPodSandbox resp: %+v", podSandboxList)
++
+ 	response := &kubeapi.ListPodSandboxResponse{Items: podSandboxList}
+ 	return response, nil
+ }
+@@ -303,6 +311,8 @@ func (v *VirtletRuntimeService) ListPodSandbox(ctx context.Context, in *kubeapi.
+ 
+ // CreateContainer method implements CreateContainer from CRI.
+ func (v *VirtletRuntimeService) CreateContainer(ctx context.Context, in *kubeapi.CreateContainerRequest) (*kubeapi.CreateContainerResponse, error) {
++	glog.V(3).Infof("Virtlet runtime CreateContainer: %v", in.PodSandboxId)
++
+ 	config := in.GetConfig()
+ 	podSandboxID := in.PodSandboxId
+ 	name := config.GetMetadata().Name
+@@ -351,6 +361,8 @@ func (v *VirtletRuntimeService) CreateContainer(ctx context.Context, in *kubeapi
+ 
+ // StartContainer method implements StartContainer from CRI.
+ func (v *VirtletRuntimeService) StartContainer(ctx context.Context, in *kubeapi.StartContainerRequest) (*kubeapi.StartContainerResponse, error) {
++	glog.V(3).Infof("Virtlet runtime StartContainer: %v", in.ContainerId)
++
+ 	info, err := v.virtTool.ContainerInfo(in.ContainerId)
+ 	if err == nil && info != nil && info.State == types.ContainerState_CONTAINER_RUNNING {
+ 		glog.V(2).Infof("StartContainer: Container %s is already running", in.ContainerId)
+@@ -367,6 +379,8 @@ func (v *VirtletRuntimeService) StartContainer(ctx context.Context, in *kubeapi.
+ 
+ // StopContainer method implements StopContainer from CRI.
+ func (v *VirtletRuntimeService) StopContainer(ctx context.Context, in *kubeapi.StopContainerRequest) (*kubeapi.StopContainerResponse, error) {
++	glog.V(3).Infof("Virtlet runtime StopContainer: %v", in.ContainerId)
++
+ 	if err := v.virtTool.StopContainer(in.ContainerId, time.Duration(in.Timeout)*time.Second); err != nil {
+ 		return nil, err
+ 	}
+@@ -376,6 +390,8 @@ func (v *VirtletRuntimeService) StopContainer(ctx context.Context, in *kubeapi.S
+ 
+ // RemoveContainer method implements RemoveContainer from CRI.
+ func (v *VirtletRuntimeService) RemoveContainer(ctx context.Context, in *kubeapi.RemoveContainerRequest) (*kubeapi.RemoveContainerResponse, error) {
++	glog.V(3).Infof("Virtlet runtime StopContainer: %v", in.ContainerId)
++
+ 	if err := v.virtTool.RemoveContainer(in.ContainerId); err != nil {
+ 		return nil, err
+ 	}
+@@ -390,6 +406,8 @@ func (v *VirtletRuntimeService) RemoveContainer(ctx context.Context, in *kubeapi
+ 
+ // ListContainers method implements ListContainers from CRI.
+ func (v *VirtletRuntimeService) ListContainers(ctx context.Context, in *kubeapi.ListContainersRequest) (*kubeapi.ListContainersResponse, error) {
++	glog.V(3).Infof("Virtlet runtime ListContainers: %+v", in.Filter)
++
+ 	filter := CRIContainerFilterToContainerFilter(in.GetFilter())
+ 	containers, err := v.virtTool.ListContainers(filter)
+ 	if err != nil {
+@@ -399,12 +417,16 @@ func (v *VirtletRuntimeService) ListContainers(ctx context.Context, in *kubeapi.
+ 	for _, c := range containers {
+ 		r = append(r, ContainerInfoToCRIContainer(c))
+ 	}
++	glog.V(3).Infof("Virtlet runtime ListContainers resp: %+v", r)
++
+ 	response := &kubeapi.ListContainersResponse{Containers: r}
+ 	return response, nil
+ }
+ 
+ // ContainerStatus method implements ContainerStatus from CRI.
+ func (v *VirtletRuntimeService) ContainerStatus(ctx context.Context, in *kubeapi.ContainerStatusRequest) (*kubeapi.ContainerStatusResponse, error) {
++	glog.V(3).Infof("Virtlet runtime ContainerStatus: %v", in.ContainerId)
++
+ 	info, err := v.virtTool.ContainerInfo(in.ContainerId)
+ 	if err != nil {
+ 		return nil, err
+@@ -419,6 +441,7 @@ func (v *VirtletRuntimeService) ContainerStatus(ctx context.Context, in *kubeapi
+ 			},
+ 		}, nil
+ 	}
++	glog.V(3).Infof("Virtlet runtime ContainerStatus resp: %v", ContainerInfoToCRIContainerStatus(info))
+ 
+ 	response := &kubeapi.ContainerStatusResponse{Status: ContainerInfoToCRIContainerStatus(info)}
+ 	return response, nil
+diff --git a/pkg/tapmanager/fdserver.go b/pkg/tapmanager/fdserver.go
+index 90fc68cb..178c1f8d 100644
+--- a/pkg/tapmanager/fdserver.go
++++ b/pkg/tapmanager/fdserver.go
+@@ -40,11 +40,13 @@ const (
+ 	fdRelease           = 1
+ 	fdGet               = 2
+ 	fdRecover           = 3
++	fdClean             = 4
+ 	fdResponse          = 0x80
+ 	fdAddResponse       = fdAdd | fdResponse
+ 	fdReleaseResponse   = fdRelease | fdResponse
+ 	fdGetResponse       = fdGet | fdResponse
+ 	fdRecoverResponse   = fdRecover | fdResponse
++	fdCleanResponse     = fdClean | fdResponse
+ 	fdError             = 0xff
+ )
+ 
+@@ -61,6 +63,8 @@ type FDManager interface {
+ 	// specified key. It's intended to be called after
+ 	// Virtlet restart.
+ 	Recover(key string, data interface{}) error
++	// CleanFDs destroy any associated resources when virtlet pod restarted
++	CleanFDs(key string, data interface{}) error
+ }
+ 
+ type fdHeader struct {
+@@ -109,6 +113,9 @@ type FDSource interface {
+ 	// Stop stops any goroutines associated with FDSource
+ 	// but doesn't release the namespaces
+ 	Stop() error
++	// Clean destroy any associated resources when virtlet
++	// pod restarted
++	Clean(key string, data []byte) error
+ }
+ 
+ // FDServer listens on a Unix domain socket, serving requests to
+@@ -316,6 +323,25 @@ func (s *FDServer) serveRecover(c *net.UnixConn, hdr *fdHeader) (*fdHeader, erro
+ 	}, nil
+ }
+ 
++func (s *FDServer) serveClean(c *net.UnixConn, hdr *fdHeader) (*fdHeader, error) {
++	data := make([]byte, hdr.DataSize)
++	if len(data) > 0 {
++		if _, err := io.ReadFull(c, data); err != nil {
++			return nil, fmt.Errorf("error reading payload: %v", err)
++		}
++	}
++	key := hdr.getKey()
++	if err := s.source.Clean(key, data); err != nil {
++		return nil, fmt.Errorf("error recovering %q: %v", key, err)
++	}
++
++	return &fdHeader{
++		Magic:   fdMagic,
++		Command: fdRecoverResponse,
++		Key:     hdr.Key,
++	}, nil
++}
++
+ func (s *FDServer) serveConn(c *net.UnixConn) error {
+ 	defer c.Close()
+ 	for {
+@@ -342,6 +368,8 @@ func (s *FDServer) serveConn(c *net.UnixConn) error {
+ 			respHdr, data, oobData, err = s.serveGet(c, &hdr)
+ 		case fdRecover:
+ 			respHdr, err = s.serveRecover(c, &hdr)
++		case fdClean:
++			respHdr, err = s.serveClean(c, &hdr)
+ 		default:
+ 			err = errors.New("bad command")
+ 		}
+@@ -580,3 +608,27 @@ func (c *FDClient) Recover(key string, data interface{}) error {
+ 	}
+ 	return nil
+ }
++
++// CleanFDs destroy any associated resources when virtlet pod restarted
++func (c *FDClient) CleanFDs(key string, data interface{}) error {
++	bs, ok := data.([]byte)
++	if !ok {
++		var err error
++		bs, err = json.Marshal(data)
++		if err != nil {
++			return fmt.Errorf("error marshalling json: %v", err)
++		}
++	}
++	respHdr, _, _, err := c.request(&fdHeader{
++		Command:  fdClean,
++		Key:      fdKey(key),
++		DataSize: uint32(len(bs)),
++	}, bs)
++	if err != nil {
++		return err
++	}
++	if respHdr.getKey() != key {
++		return fmt.Errorf("fd key mismatch in the server response")
++	}
++	return nil
++}
+diff --git a/pkg/tapmanager/tapfdsource.go b/pkg/tapmanager/tapfdsource.go
+index 294cc21e..ea18a0f5 100644
+--- a/pkg/tapmanager/tapfdsource.go
++++ b/pkg/tapmanager/tapfdsource.go
+@@ -396,7 +396,7 @@ func (s *TapFDSource) setupNetNS(key string, pnd *PodNetworkDesc, initNet func(n
+ 		}
+ 
+ 		dhcpServer = dhcp.NewServer(csn)
+-		glog.Warningf("Setup calico dhcp server")
++		glog.V(2).Info("Setup calico dhcp server")
+ 		if err := dhcpServer.SetupListener("0.0.0.0"); err != nil {
+ 			return fmt.Errorf("Failed to set up dhcp listener: %v", err)
+ 		}
+@@ -428,3 +428,67 @@ func (s *TapFDSource) setupNetNS(key string, pnd *PodNetworkDesc, initNet func(n
+ 	}
+ 	return nil
+ }
++
++// Clean destroy any associated resources when virtlet
++// pod restarted
++func (s *TapFDSource) Clean(key string, data []byte) error {
++	glog.V(3).Infof("Clean FDs: %v", key)
++	var payload RecoverPayload
++	if err := json.Unmarshal(data, &payload); err != nil {
++		return fmt.Errorf("error unmarshalling CleanFD payload: %v", err)
++	}
++	pnd := payload.Description
++
++	// Try to keep this function idempotent even if there are errors during the following calls.
++	// This can cause some resource leaks in multiple CNI case but makes it possible
++	// to call `RunPodSandbox` again after a failed attempt. Failing to do so would cause
++	// the next `RunPodSandbox` call to fail due to the netns already being present.
++	defer func() {
++		podID := utils.NewUUID5(pnd.PodID, "dummy")
++		if err := cni.DestroyNetNS(podID); err != nil {
++			glog.Errorf("Error when removing Dummy network namespace for pod sandbox %q: %v", podID, err)
++		}
++
++		if err := cni.DestroyNetNS(pnd.PodID); err != nil {
++			glog.Errorf("Error when removing network namespace for pod sandbox %q: %v", pnd.PodID, err)
++		}
++
++	}()
++
++	csn := payload.ContainerSideNetwork
++	if csn == nil {
++		glog.V(3).Infof("No ContainerSideNetwork data passed to Clean()")
++	} else {
++
++		netNSPath := cni.PodNetNSPath(pnd.PodID)
++		vmNS, err := ns.GetNS(netNSPath)
++		if err != nil {
++			return fmt.Errorf("failed to open network namespace at %q: %v", netNSPath, err)
++		}
++
++		if csn.Result == nil {
++			csn.Result = &cnicurrent.Result{}
++		}
++		if err := nettools.ReconstructVFs(csn, vmNS, false); err != nil {
++			glog.Errorf("failed to reconstruct SR-IOV devices: %v", err)
++		}
++
++		if err := vmNS.Do(func(ns.NetNS) error {
++			return nettools.Teardown(csn)
++		}); err != nil {
++			glog.Errorf("failed to teardown network: %v", err)
++		}
++	}
++
++	//only warning if remove dummy failed
++	podID := utils.NewUUID5(pnd.PodID, "dummy")
++	if err := s.cniClient.RemoveSandboxFromNetwork(podID, pnd.PodName+"dummy", pnd.PodNs); err != nil {
++		glog.Errorf("error removing dummy pod sandbox %q from CNI network: %v", podID, err)
++	}
++
++	if err := s.cniClient.RemoveSandboxFromNetwork(pnd.PodID, pnd.PodName, pnd.PodNs); err != nil {
++		glog.Errorf("error removing pod sandbox %q from CNI network: %v", pnd.PodID, err)
++	}
++
++	return nil
++}
+diff --git a/vendor/google.golang.org/grpc/transport/http2_server.go b/vendor/google.golang.org/grpc/transport/http2_server.go
+index a62fb7c2..0e63ea7d 100644
+--- a/vendor/google.golang.org/grpc/transport/http2_server.go
++++ b/vendor/google.golang.org/grpc/transport/http2_server.go
+@@ -228,7 +228,9 @@ func (t *http2Server) HandleStreams(handle func(*Stream)) {
+ 	// Check the validity of client preface.
+ 	preface := make([]byte, len(clientPreface))
+ 	if _, err := io.ReadFull(t.conn, preface); err != nil {
+-		grpclog.Printf("transport: http2Server.HandleStreams failed to receive the preface from client: %v", err)
++		if err != io.EOF {
++			grpclog.Printf("transport: http2Server.HandleStreams failed to receive the preface from client: %v", err)
++		}
+ 		t.Close()
+ 		return
+ 	}

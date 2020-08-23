@@ -40,11 +40,13 @@ const (
 	fdRelease           = 1
 	fdGet               = 2
 	fdRecover           = 3
+	fdClean             = 4
 	fdResponse          = 0x80
 	fdAddResponse       = fdAdd | fdResponse
 	fdReleaseResponse   = fdRelease | fdResponse
 	fdGetResponse       = fdGet | fdResponse
 	fdRecoverResponse   = fdRecover | fdResponse
+	fdCleanResponse     = fdClean | fdResponse
 	fdError             = 0xff
 )
 
@@ -61,6 +63,8 @@ type FDManager interface {
 	// specified key. It's intended to be called after
 	// Virtlet restart.
 	Recover(key string, data interface{}) error
+	// CleanFDs destroy any associated resources when virtlet pod restarted
+	CleanFDs(key string, data interface{}) error
 }
 
 type fdHeader struct {
@@ -109,6 +113,9 @@ type FDSource interface {
 	// Stop stops any goroutines associated with FDSource
 	// but doesn't release the namespaces
 	Stop() error
+	// Clean destroy any associated resources when virtlet
+	// pod restarted
+	Clean(key string, data []byte) error
 }
 
 // FDServer listens on a Unix domain socket, serving requests to
@@ -316,6 +323,25 @@ func (s *FDServer) serveRecover(c *net.UnixConn, hdr *fdHeader) (*fdHeader, erro
 	}, nil
 }
 
+func (s *FDServer) serveClean(c *net.UnixConn, hdr *fdHeader) (*fdHeader, error) {
+	data := make([]byte, hdr.DataSize)
+	if len(data) > 0 {
+		if _, err := io.ReadFull(c, data); err != nil {
+			return nil, fmt.Errorf("error reading payload: %v", err)
+		}
+	}
+	key := hdr.getKey()
+	if err := s.source.Clean(key, data); err != nil {
+		return nil, fmt.Errorf("error recovering %q: %v", key, err)
+	}
+
+	return &fdHeader{
+		Magic:   fdMagic,
+		Command: fdRecoverResponse,
+		Key:     hdr.Key,
+	}, nil
+}
+
 func (s *FDServer) serveConn(c *net.UnixConn) error {
 	defer c.Close()
 	for {
@@ -342,6 +368,8 @@ func (s *FDServer) serveConn(c *net.UnixConn) error {
 			respHdr, data, oobData, err = s.serveGet(c, &hdr)
 		case fdRecover:
 			respHdr, err = s.serveRecover(c, &hdr)
+		case fdClean:
+			respHdr, err = s.serveClean(c, &hdr)
 		default:
 			err = errors.New("bad command")
 		}
@@ -571,6 +599,30 @@ func (c *FDClient) Recover(key string, data interface{}) error {
 		Command:  fdRecover,
 		DataSize: uint32(len(bs)),
 		Key:      fdKey(key),
+	}, bs)
+	if err != nil {
+		return err
+	}
+	if respHdr.getKey() != key {
+		return fmt.Errorf("fd key mismatch in the server response")
+	}
+	return nil
+}
+
+// CleanFDs destroy any associated resources when virtlet pod restarted
+func (c *FDClient) CleanFDs(key string, data interface{}) error {
+	bs, ok := data.([]byte)
+	if !ok {
+		var err error
+		bs, err = json.Marshal(data)
+		if err != nil {
+			return fmt.Errorf("error marshalling json: %v", err)
+		}
+	}
+	respHdr, _, _, err := c.request(&fdHeader{
+		Command:  fdClean,
+		Key:      fdKey(key),
+		DataSize: uint32(len(bs)),
 	}, bs)
 	if err != nil {
 		return err

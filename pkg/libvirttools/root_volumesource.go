@@ -77,11 +77,12 @@ func (v *rootVolume) createVolume() (virt.StorageVolume, error) {
 		return nil, err
 	}
 	for n, v := range vols {
-		glog.V(3).Infof("createVolume %d vols: %v", n, v.Name)
+		glog.V(3).Infof("storage pool existed vol: %d, %v", n, v.Name())
 	}
 
 	exist, err := storagePool.LookupVolumeByName(v.volumeName())
 	if err == nil {
+		glog.V(3).Infof("vol %v existed, skip create", v.volumeName())
 		return exist, err
 	}
 
