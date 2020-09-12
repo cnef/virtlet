@@ -73,6 +73,7 @@ Makefile.in
 .deps
 .dirstamp
 test-driver
-
+.vscode
+.metals
 # build output
 _output

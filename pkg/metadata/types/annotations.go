@@ -46,6 +46,7 @@ const (
 	systemUUIDKeyName                 = "VirtletSystemUUID"
 	vncPasswordKeyName                = "VirtletVncPassword"
 	osTypeKeyName                     = "VirtletOSType"
+	snapshotKeyName                   = "VirtletSnapshot"
 	forceDHCPNetworkConfigKeyName     = "VirtletForceDHCPNetworkConfig"
 	// CloudInitUserDataSourceKeyName is the name of user data source key in the pod annotations.
 	CloudInitUserDataSourceKeyName = "VirtletCloudInitUserDataSource"
@@ -134,6 +135,8 @@ type VirtletAnnotations struct {
 	// OSType specifies the image os type is windows or linux
 	// We need use it to fix timezone issue for windows guest os
 	OSType string
+	// Snapshot create snapshot file base backing file
+	Snapshot []string
 }
 
 // ExternalUserDataLoader is a function that loads external user data that's specified
@@ -331,5 +334,9 @@ func (va *VirtletAnnotations) parsePodAnnotations(ns string, podAnnotations map[
 	va.VncPassword = podAnnotations[vncPasswordKeyName]
 	va.OSType = podAnnotations[osTypeKeyName]
 
+	snapKv := strings.Split(podAnnotations[snapshotKeyName], ",")
+	if len(snapKv) == 2 && len(snapKv[0]) > 0 && len(snapKv[1]) > 0 {
+		va.Snapshot = snapKv
+	}
 	return nil
 }

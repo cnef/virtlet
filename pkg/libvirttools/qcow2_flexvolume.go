@@ -20,7 +20,9 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
+	"strings"
 
+	"github.com/golang/glog"
 	libvirtxml "github.com/libvirt/libvirt-go-xml"
 
 	"github.com/Mirantis/virtlet/pkg/metadata/types"
@@ -77,7 +79,11 @@ func newQCOW2Volume(volumeName, configPath string, config *types.VMConfig, owner
 }
 
 func (v *qcow2Volume) volumeName() string {
-	return "virtlet-" + v.config.DomainUUID + "-" + v.name
+	if len(v.config.ParsedAnnotations.Snapshot) == 0 {
+		return "virtlet-" + v.config.DomainUUID + "-" + v.name
+	}
+	return "virtlet-" + v.config.DomainUUID + "-" + v.name +
+		"." + v.config.ParsedAnnotations.Snapshot[1]
 }
 
 func (v *qcow2Volume) createQCOW2Volume(capacity uint64, capacityUnit string) (virt.StorageVolume, error) {
@@ -99,11 +105,81 @@ func (v *qcow2Volume) createQCOW2Volume(capacity uint64, capacityUnit string) (v
 	})
 }
 
+// convert root volume name foramt to data volume format
+func (v *qcow2Volume) snapshotBackingfile(backingFile string) string {
+	backingFile = strings.Replace(backingFile, "virtlet_root_", "virtlet-", 1)
+	if strings.Contains(backingFile, ".") {
+		backingFile = strings.Replace(backingFile, ".", "-"+v.name+".", 1)
+	} else {
+		backingFile = backingFile + "-" + v.name
+	}
+	return backingFile
+}
+
+func (v *qcow2Volume) createSnapshotVolume(vol, backingFile string) error {
+	storagePool, err := v.owner.StoragePool()
+	if err != nil {
+		return err
+	}
+
+	_, err = storagePool.LookupVolumeByName(vol)
+	if err == nil {
+		glog.V(3).Infof("Vol %s existed, don't clone", vol)
+		return nil
+	}
+
+	backingVol, err := storagePool.LookupVolumeByName(backingFile)
+	if err == virt.ErrStorageVolumeNotFound {
+		// when add a new vol to VM, the backing file not existed
+		// so, we need to create a new vol
+		return nil
+	} else if err != nil {
+		return err
+	}
+	virtualSize, err := backingVol.Size()
+	if err != nil {
+		return err
+	}
+
+	glog.V(3).Infof("createVolume %s backing: %s", v.volumeName(), backingFile)
+
+	_, err = storagePool.CreateStorageVol(&libvirtxml.StorageVolume{
+		Type: "file",
+		Name: v.volumeName(),
+		Allocation: &libvirtxml.StorageVolumeSize{
+			Unit:  "b",
+			Value: 0,
+		},
+		Capacity: &libvirtxml.StorageVolumeSize{
+			Unit:  "b",
+			Value: virtualSize,
+		},
+		Target: &libvirtxml.StorageVolumeTarget{
+			Format: &libvirtxml.StorageVolumeTargetFormat{Type: "qcow2"},
+		},
+		BackingStore: &libvirtxml.StorageVolumeBackingStore{
+			Path:   backingFile,
+			Format: &libvirtxml.StorageVolumeTargetFormat{Type: "qcow2"},
+		},
+	})
+
+	return err
+}
+
 func (v *qcow2Volume) UUID() string {
 	return v.uuid
 }
 
 func (v *qcow2Volume) Setup() (*libvirtxml.DomainDisk, *libvirtxml.DomainFilesystem, error) {
+
+	if len(v.volumeBase.config.ParsedAnnotations.Snapshot) > 0 {
+		backingFile := v.snapshotBackingfile(v.volumeBase.config.ParsedAnnotations.Snapshot[0])
+		glog.V(3).Infof("Create vol %s snapshot from backingfile %s", v.volumeName(), backingFile)
+		err := v.createSnapshotVolume(v.volumeName(), backingFile)
+		if err != nil {
+			glog.Errorf("Failed create snapshot file %s: %v", v.volumeName(), err)
+		}
+	}
 	vol, err := v.createQCOW2Volume(uint64(v.capacity), v.capacityUnit)
 	if err != nil {
 		return nil, nil, fmt.Errorf("error during creation of volume '%s' with virtlet description %s: %v", v.volumeName(), v.name, err)
@@ -135,7 +211,21 @@ func (v *qcow2Volume) Teardown() error {
 	if err != nil {
 		return err
 	}
-	return storagePool.RemoveVolumeByName(v.volumeName())
+	// clear volume and snaphost
+	volPrefix := "virtlet-" + v.config.DomainUUID + "-" + v.name
+	vols, err := storagePool.ListVolumes()
+	if err != nil {
+		return err
+	}
+	for _, vol := range vols {
+		if strings.HasPrefix(vol.Name(), volPrefix) {
+			err = storagePool.RemoveVolumeByName(vol.Name())
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func parseCapacityStr(capacityStr string) (int, string, error) {

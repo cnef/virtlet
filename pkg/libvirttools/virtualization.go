@@ -82,6 +82,7 @@ type domainSettings struct {
 	systemUUID       string
 	vncPassword      string
 	osType           string
+	snapshot         []string
 }
 
 func (ds *domainSettings) createDomain(config *types.VMConfig) *libvirtxml.Domain {
@@ -117,7 +118,10 @@ func (ds *domainSettings) createDomain(config *types.VMConfig) *libvirtxml.Domai
 		},
 
 		OS: &libvirtxml.DomainOS{
-			Type: &libvirtxml.DomainOSType{Type: "hvm", Machine: "pc-i440fx-xenial"},
+			//qemu-system-x86_64 -M help
+			//https://remimin.github.io/2019/07/09/qemu_machine_type/
+			//https://www.cnblogs.com/weikunzz/p/6857977.html
+			Type: &libvirtxml.DomainOSType{Type: "hvm", Machine: "pc"},
 			BootDevices: []libvirtxml.DomainBootDevice{
 				{Dev: "hd"},
 			},
@@ -167,6 +171,17 @@ func (ds *domainSettings) createDomain(config *types.VMConfig) *libvirtxml.Domai
 	if config.ParsedAnnotations.CPUSetting != nil {
 		domain.CPU = config.ParsedAnnotations.CPUSetting
 	} else {
+		defaultSockets := 2
+		if ds.vcpuNum == 1 {
+			defaultSockets = 1
+		}
+
+		topology := &libvirtxml.DomainCPUTopology{
+			Sockets: defaultSockets,
+			Cores:   ds.vcpuNum / defaultSockets,
+			Threads: 1,
+		}
+
 		switch ds.cpuModel {
 		case types.CPUModelHostModel:
 			// The following enables nested virtualization.
@@ -184,13 +199,18 @@ func (ds *domainSettings) createDomain(config *types.VMConfig) *libvirtxml.Domai
 						Name:   "vmx",
 					},
 				},
+				Topology: topology,
 			}
 		case types.CPUModelHostPassthrough:
 			domain.CPU = &libvirtxml.DomainCPU{
-				Mode: types.CPUModelHostPassthrough,
+				Mode:     types.CPUModelHostPassthrough,
+				Topology: topology,
 			}
 		case "":
 			// leave it empty
+			domain.CPU = &libvirtxml.DomainCPU{
+				Topology: topology,
+			}
 		default:
 			glog.Warningf("Unknown value set in VIRTLET_CPU_MODEL: %q", ds.cpuModel)
 		}
@@ -355,6 +375,7 @@ func (v *VirtualizationTool) CreateContainer(config *types.VMConfig, netFdKey st
 		systemUUID:  config.ParsedAnnotations.SystemUUID,
 		vncPassword: config.ParsedAnnotations.VncPassword,
 		osType:      config.ParsedAnnotations.OSType,
+		snapshot:    config.ParsedAnnotations.Snapshot,
 	}
 	if settings.memory == 0 {
 		settings.memory = defaultMemory
@@ -769,7 +790,8 @@ func virtToKubeState(domainState virt.DomainState, lastState types.ContainerStat
 		if lastState == types.ContainerState_CONTAINER_CREATED {
 			containerState = types.ContainerState_CONTAINER_CREATED
 		} else {
-			containerState = types.ContainerState_CONTAINER_EXITED
+			//containerState = types.ContainerState_CONTAINER_EXITED
+			containerState = types.ContainerState_CONTAINER_RUNNING
 		}
 	case virt.DomainStateShutoff:
 		if lastState == types.ContainerState_CONTAINER_CREATED {
@@ -857,6 +879,9 @@ func (v *VirtualizationTool) ListContainers(filter *types.ContainerFilter) ([]*t
 
 			if containerInfo == nil {
 				glog.V(1).Infof("Failed to find info for domain with id %q in virtlet db, considering it a non-virtlet libvirt domain.", containerID)
+				if err := domain.Undefine(); err != nil {
+					glog.Errorf("Failed to undefine domain: %s, %v", containerID, err)
+				}
 				continue
 			}
 			containers = append(containers, containerInfo)

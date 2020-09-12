@@ -18,6 +18,8 @@ package libvirttools
 
 import (
 	"fmt"
+	"path/filepath"
+	"strings"
 
 	"github.com/golang/glog"
 	libvirtxml "github.com/libvirt/libvirt-go-xml"
@@ -52,7 +54,11 @@ func GetRootVolume(config *types.VMConfig, owner volumeOwner) ([]VMVolume, error
 }
 
 func (v *rootVolume) volumeName() string {
-	return "virtlet_root_" + v.config.DomainUUID
+	if len(v.config.ParsedAnnotations.Snapshot) == 0 {
+		return "virtlet_root_" + v.config.DomainUUID
+	}
+	return "virtlet_root_" + v.config.DomainUUID +
+		"." + v.config.ParsedAnnotations.Snapshot[1]
 }
 
 func (v *rootVolume) createVolume() (virt.StorageVolume, error) {
@@ -109,9 +115,70 @@ func (v *rootVolume) createVolume() (virt.StorageVolume, error) {
 	})
 }
 
+func (v *rootVolume) createSnapshotVolume(vol, backingFile string) error {
+	// don't create snapshot volume when backingfile is empty(-)
+	// this is a feature that to support reset the vm os
+	if backingFile == "-" {
+		return nil
+	}
+	storagePool, err := v.owner.StoragePool()
+	if err != nil {
+		return err
+	}
+
+	_, err = storagePool.LookupVolumeByName(vol)
+	if err == nil {
+		glog.V(3).Infof("Vol %s existed, don't clone", vol)
+		return nil
+	}
+
+	backingVol, err := storagePool.LookupVolumeByName(filepath.Base(backingFile))
+	if err != nil {
+		return err
+	}
+	virtualSize, err := backingVol.Size()
+	if err != nil {
+		return err
+	}
+
+	glog.V(3).Infof("createVolume %s backing: %s", v.volumeName(), backingFile)
+
+	_, err = storagePool.CreateStorageVol(&libvirtxml.StorageVolume{
+		Type: "file",
+		Name: v.volumeName(),
+		Allocation: &libvirtxml.StorageVolumeSize{
+			Unit:  "b",
+			Value: 0,
+		},
+		Capacity: &libvirtxml.StorageVolumeSize{
+			Unit:  "b",
+			Value: virtualSize,
+		},
+		Target: &libvirtxml.StorageVolumeTarget{
+			Format: &libvirtxml.StorageVolumeTargetFormat{Type: "qcow2"},
+		},
+		BackingStore: &libvirtxml.StorageVolumeBackingStore{
+			Path:   backingFile,
+			Format: &libvirtxml.StorageVolumeTargetFormat{Type: "qcow2"},
+		},
+	})
+
+	return err
+}
+
 func (v *rootVolume) UUID() string { return "" }
 
 func (v *rootVolume) Setup() (*libvirtxml.DomainDisk, *libvirtxml.DomainFilesystem, error) {
+
+	if len(v.volumeBase.config.ParsedAnnotations.Snapshot) > 0 {
+		backingFile := v.volumeBase.config.ParsedAnnotations.Snapshot[0]
+		glog.V(3).Infof("Create vol %s snapshot from backingfile %s", v.volumeName(), backingFile)
+		err := v.createSnapshotVolume(v.volumeName(), backingFile)
+		if err != nil {
+			glog.Errorf("Failed create snapshot file %s: %v", v.volumeName(), err)
+		}
+	}
+
 	vol, err := v.createVolume()
 	if err != nil {
 		return nil, nil, err
@@ -138,5 +205,19 @@ func (v *rootVolume) Teardown() error {
 	if err != nil {
 		return err
 	}
-	return storagePool.RemoveVolumeByName(v.volumeName())
+	// clear volume and snaphost
+	volPrefix := "virtlet_root_" + v.config.DomainUUID
+	vols, err := storagePool.ListVolumes()
+	if err != nil {
+		return err
+	}
+	for _, vol := range vols {
+		if strings.HasPrefix(vol.Name(), volPrefix) {
+			err = storagePool.RemoveVolumeByName(vol.Name())
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
