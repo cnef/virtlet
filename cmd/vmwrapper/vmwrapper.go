@@ -73,6 +73,11 @@ func main() {
 
 	emulator := os.Getenv(config.EmulatorEnvVarName)
 	emulatorArgs := os.Args[1:]
+
+	nicModel := os.Getenv(config.NicModelEnvVarName)
+	if nicModel != "e1000" {
+		nicModel = "virtio-net-pci"
+	}
 	var netArgs []string
 	if emulator == "" {
 		// this happens during 'qemu -help' invocation by libvirt
@@ -103,7 +108,7 @@ func main() {
 						"-netdev",
 						fmt.Sprintf("tap,id=tap%d,fd=%d", desc.FdIndex, fds[desc.FdIndex]),
 						"-device",
-						fmt.Sprintf("virtio-net-pci,netdev=tap%d,id=net%d,mac=%s", desc.FdIndex, i, desc.HardwareAddr),
+						fmt.Sprintf("%s,netdev=tap%d,id=net%d,mac=%s", nicModel, desc.FdIndex, i, desc.HardwareAddr),
 					)
 				case network.InterfaceTypeVF:
 					netArgs = append(netArgs,

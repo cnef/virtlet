@@ -77,6 +77,7 @@ type domainSettings struct {
 	cpuQuota         int64
 	rootDiskFilepath string
 	netFdKey         string
+	nicModel         string
 	enableSriov      bool
 	cpuModel         string
 	systemUUID       string
@@ -158,6 +159,7 @@ func (ds *domainSettings) createDomain(config *types.VMConfig) *libvirtxml.Domai
 			Envs: []libvirtxml.DomainQEMUCommandlineEnv{
 				{Name: vconfig.EmulatorEnvVarName, Value: emulator},
 				{Name: vconfig.NetKeyEnvVarName, Value: ds.netFdKey},
+				{Name: vconfig.NicModelEnvVarName, Value: ds.nicModel},
 				{Name: vconfig.ContainerIDEnvVarName, Value: config.DomainUUID},
 				{Name: vconfig.LogPathEnvVarName,
 					Value: filepath.Join(config.LogDirectory, config.LogPath)},
@@ -376,6 +378,7 @@ func (v *VirtualizationTool) CreateContainer(config *types.VMConfig, netFdKey st
 		vncPassword: config.ParsedAnnotations.VncPassword,
 		osType:      config.ParsedAnnotations.OSType,
 		snapshot:    config.ParsedAnnotations.Snapshot,
+		nicModel:    config.ParsedAnnotations.NicModel,
 	}
 	if settings.memory == 0 {
 		settings.memory = defaultMemory

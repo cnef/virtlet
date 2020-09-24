@@ -46,6 +46,7 @@ const (
 	systemUUIDKeyName                 = "VirtletSystemUUID"
 	vncPasswordKeyName                = "VirtletVncPassword"
 	osTypeKeyName                     = "VirtletOSType"
+	nicModelKeyName                   = "VirtletNicModel"
 	snapshotKeyName                   = "VirtletSnapshot"
 	forceDHCPNetworkConfigKeyName     = "VirtletForceDHCPNetworkConfig"
 	// CloudInitUserDataSourceKeyName is the name of user data source key in the pod annotations.
@@ -137,6 +138,8 @@ type VirtletAnnotations struct {
 	OSType string
 	// Snapshot create snapshot file base backing file
 	Snapshot []string
+	// NicModel setup vm network device model, only support e1000
+	NicModel string
 }
 
 // ExternalUserDataLoader is a function that loads external user data that's specified
@@ -333,6 +336,7 @@ func (va *VirtletAnnotations) parsePodAnnotations(ns string, podAnnotations map[
 	va.SystemUUID = podAnnotations[systemUUIDKeyName]
 	va.VncPassword = podAnnotations[vncPasswordKeyName]
 	va.OSType = podAnnotations[osTypeKeyName]
+	va.NicModel = podAnnotations[nicModelKeyName]
 
 	snapKv := strings.Split(podAnnotations[snapshotKeyName], ",")
 	if len(snapKv) == 2 && len(snapKv[0]) > 0 && len(snapKv[1]) > 0 {
