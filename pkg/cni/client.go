@@ -139,10 +139,11 @@ func (c *realClient) cniRuntimeConf(podID, podName, podNs string) *libcni.Runtim
 			NetNS:       PodNetNSPath(podID),
 			IfName:      "virtlet-eth0",
 		}
+		realPodName := strings.Replace(podName, "dummy", "", -1)
 		r.Args = [][2]string{
 			{"IgnoreUnknown", "1"},
 			{"K8S_POD_NAMESPACE", podNs},
-			// {"K8S_POD_NAME", podName},
+			{"K8S_POD_NAME", realPodName},
 			{"K8S_POD_INFRA_CONTAINER_ID", podID},
 		}
 	} else {
