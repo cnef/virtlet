@@ -172,7 +172,7 @@ func (s *TapFDSource) GetFDs(key string, data []byte) ([]int, []byte, error) {
 		return nil, nil, fmt.Errorf("error adding pod %s (%s) to CNI network: %v", pnd.PodName, pnd.PodID, err)
 	}
 	podAddedToNetwork = true
-	glog.V(3).Infof("CNI configuration for pod %s (%s): %s", pnd.PodName, pnd.PodID, spew.Sdump(netConfig))
+	glog.V(3).Infof("CNI configuration for pod %s (%s): %s", pnd.PodName, pnd.PodID, spew.Sdump(netConfig), spew.Sdump(pnd))
 
 	if netConfig == nil {
 		netConfig = &cnicurrent.Result{}

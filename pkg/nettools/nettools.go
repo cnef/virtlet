@@ -542,10 +542,10 @@ func disableMacLearning(nsPath string, bridgeName string) error {
 			continue
 		}
 
-		if out, err := exec.Command("ip", "netns", "exec", path.Base(nsPath), "brctl", "stp", bridgeName, "on").CombinedOutput(); err != nil {
-			fmt.Printf("Set stp off: %s %v %s", nsPath, err, out)
-			continue
-		}
+		// if out, err := exec.Command("ip", "netns", "exec", path.Base(nsPath), "brctl", "stp", bridgeName, "on").CombinedOutput(); err != nil {
+		// 	fmt.Printf("Set stp off: %s %v %s", nsPath, err, out)
+		// 	continue
+		// }
 		if out, err := exec.Command("ip", "netns", "exec", path.Base(nsPath), "brctl", "setfd", bridgeName, "2").CombinedOutput(); err != nil {
 			fmt.Printf("Set stp off: %s %v %s", nsPath, err, out)
 			continue

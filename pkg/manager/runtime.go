@@ -19,6 +19,7 @@ package manager
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	cnitypes "github.com/containernetworking/cni/pkg/types"
@@ -141,7 +142,7 @@ func (v *VirtletRuntimeService) RunPodSandbox(ctx context.Context, in *kubeapi.R
 	// CNI is used just to configure the network namespace and CNI DNS
 	// info is ignored. Instead of this, DnsConfig from PodSandboxConfig
 	// is used to configure container's resolv.conf.
-	if config.DnsConfig != nil && config.Annotations["cni"] != "bridge" {
+	if config.DnsConfig != nil && strings.Contains(config.Annotations["cni"], "calico") {
 		pnd.DNS = &cnitypes.DNS{
 			Nameservers: config.DnsConfig.Servers,
 			Search:      config.DnsConfig.Searches,

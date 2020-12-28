@@ -279,6 +279,7 @@ func (s *Server) getStaticRoutes(ip net.IPNet) (router, routes []byte, err error
 	}
 
 	var b bytes.Buffer
+	var bestRouter bool
 	for _, route := range s.config.Result.Routes {
 		if route.Dst.IP == nil {
 			return nil, nil, fmt.Errorf("invalid route: %#v", route)
@@ -305,7 +306,12 @@ func (s *Server) getStaticRoutes(ip net.IPNet) (router, routes []byte, err error
 		// }
 		if gw != nil && dstIP.Equal(net.IPv4zero) {
 			if s, _ := route.Dst.Mask.Size(); s == 0 {
-				router = gw
+				if !bestRouter {
+					router = gw
+					if ip.Contains(gw) {
+						bestRouter = true
+					}
+				}
 				continue
 			}
 		}
