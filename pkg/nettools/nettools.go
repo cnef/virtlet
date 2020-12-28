@@ -45,6 +45,7 @@ import (
 	"path"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/containernetworking/cni/pkg/ns"
@@ -65,6 +66,8 @@ const (
 	// Address for dhcp server internal interface
 	internalDhcpAddr = "169.254.254.2/24"
 )
+
+var brLock sync.Mutex
 
 func makeVethPair(name, peer string, mtu int) (netlink.Link, error) {
 	veth := &netlink.Veth{
@@ -530,14 +533,17 @@ func updateEbTables(nsPath, interfaceName, command string) error {
 }
 
 func disableMacLearning(nsPath string, bridgeName string) error {
-	for i := 0; i <= 2; i++ {
+	brLock.Lock()
+	defer brLock.Unlock()
+	for i := 0; i <= 5; i++ {
 		var err error
-		if out, err := exec.Command("nsenter", "--net="+nsPath, "brctl", "setageing", bridgeName, "0").CombinedOutput(); err != nil {
+		var out []byte
+		if out, err = exec.Command("nsenter", "--net="+nsPath, "brctl", "setageing", bridgeName, "0").CombinedOutput(); err != nil {
 			fmt.Printf("Set ageing error: %s %v %s", nsPath, err, out)
 			continue
 		}
 
-		if out, err := exec.Command("ip", "netns", "exec", path.Base(nsPath), "brctl", "setageing", bridgeName, "0").CombinedOutput(); err != nil {
+		if out, err = exec.Command("ip", "netns", "exec", path.Base(nsPath), "brctl", "setageing", bridgeName, "0").CombinedOutput(); err != nil {
 			fmt.Printf("Set ageing error: %s %v %s", nsPath, err, out)
 			continue
 		}
@@ -546,14 +552,11 @@ func disableMacLearning(nsPath string, bridgeName string) error {
 		// 	fmt.Printf("Set stp off: %s %v %s", nsPath, err, out)
 		// 	continue
 		// }
-		if out, err := exec.Command("ip", "netns", "exec", path.Base(nsPath), "brctl", "setfd", bridgeName, "2").CombinedOutput(); err != nil {
+		if out, err = exec.Command("ip", "netns", "exec", path.Base(nsPath), "brctl", "setfd", bridgeName, "2").CombinedOutput(); err != nil {
 			fmt.Printf("Set stp off: %s %v %s", nsPath, err, out)
 			continue
 		}
-		if err == nil && i > 3 {
-			break
-		}
-		continue
+		break
 	}
 
 	return nil
