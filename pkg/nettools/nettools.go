@@ -535,7 +535,8 @@ func updateEbTables(nsPath, interfaceName, command string) error {
 func disableMacLearning(nsPath string, bridgeName string) error {
 	brLock.Lock()
 	defer brLock.Unlock()
-	for i := 0; i <= 5; i++ {
+	// must success due to package forwarding issue.
+	for ; ; {
 		var err error
 		var out []byte
 		if out, err = exec.Command("nsenter", "--net="+nsPath, "brctl", "setageing", bridgeName, "0").CombinedOutput(); err != nil {
