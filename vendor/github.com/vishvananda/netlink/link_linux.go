@@ -2378,6 +2378,12 @@ func addBridgeAttrs(bridge *Bridge, linkInfo *nl.RtAttr) {
 	if bridge.HelloTime != nil {
 		nl.NewRtAttrChild(data, nl.IFLA_BR_HELLO_TIME, nl.Uint32Attr(*bridge.HelloTime))
 	}
+	if bridge.AgeingTime != nil {
+		nl.NewRtAttrChild(data, nl.IFLA_BR_AGEING_TIME, nl.Uint32Attr(*bridge.AgeingTime))
+	}
+	if bridge.ForwardDelay != nil {
+		nl.NewRtAttrChild(data, nl.IFLA_BR_FORWARD_DELAY, nl.Uint32Attr(*bridge.ForwardDelay))
+	}
 }
 
 func parseBridgeData(bridge Link, data []syscall.NetlinkRouteAttr) {

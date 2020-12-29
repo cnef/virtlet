@@ -211,7 +211,12 @@ func CreateEscapeVethPair(innerNS ns.NetNS, ifName string, mtu int) (outerVeth, 
 }
 
 func createBridge(brName string, mtu int) (*netlink.Bridge, error) {
-	b := true
+
+	var (
+		b             = true
+		fd     uint32 = 200
+		ageing uint32 = 0
+	)
 	br := &netlink.Bridge{
 		LinkAttrs: netlink.LinkAttrs{
 			Name: brName,
@@ -223,6 +228,11 @@ func createBridge(brName string, mtu int) (*netlink.Bridge, error) {
 			TxQLen: -1,
 		},
 		MulticastSnooping: &b,
+		// Work around bridge MAC learning problem
+		// https://ubuntuforums.org/showthread.php?t=2329373&s=cf580a41179e0f186ad4e625834a1d61&p=13511965#post13511965
+		// (affects Flannel)
+		AgeingTime:   &ageing,
+		ForwardDelay: &fd,
 	}
 
 	if err := netlink.LinkAdd(br); err != nil {
@@ -625,9 +635,9 @@ func setupTapAndGetInterfaceDescription(link netlink.Link, nsPath string, ifaceN
 	// Work around bridge MAC learning problem
 	// https://ubuntuforums.org/showthread.php?t=2329373&s=cf580a41179e0f186ad4e625834a1d61&p=13511965#post13511965
 	// (affects Flannel)
-	if err := disableMacLearning(nsPath, containerBridgeName); err != nil {
-		return nil, err
-	}
+	// if err := disableMacLearning(nsPath, containerBridgeName); err != nil {
+	// 	return nil, err
+	// }
 
 	addDummyRoute(nsPath, containerBridgeName)
 
