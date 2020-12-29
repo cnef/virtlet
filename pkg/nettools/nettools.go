@@ -536,28 +536,29 @@ func disableMacLearning(nsPath string, bridgeName string) error {
 	brLock.Lock()
 	defer brLock.Unlock()
 	// must success due to package forwarding issue.
-	for ; ; {
+	for i := 0; i < 60; i++ {
+		time.Sleep(time.Second)
 		var err error
 		var out []byte
 		if out, err = exec.Command("nsenter", "--net="+nsPath, "brctl", "setageing", bridgeName, "0").CombinedOutput(); err != nil {
-			fmt.Printf("Set ageing error: %s %v %s", nsPath, err, out)
+			glog.Errorf("Set ageing error: %s %v %s", nsPath, err, out)
 			continue
 		}
 
 		if out, err = exec.Command("ip", "netns", "exec", path.Base(nsPath), "brctl", "setageing", bridgeName, "0").CombinedOutput(); err != nil {
-			fmt.Printf("Set ageing error: %s %v %s", nsPath, err, out)
+			glog.Errorf("Set ageing error: %s %v %s", nsPath, err, out)
 			continue
 		}
 
 		// if out, err := exec.Command("ip", "netns", "exec", path.Base(nsPath), "brctl", "stp", bridgeName, "on").CombinedOutput(); err != nil {
-		// 	fmt.Printf("Set stp off: %s %v %s", nsPath, err, out)
+		// 	glog.Errorf("Set stp off: %s %v %s", nsPath, err, out)
 		// 	continue
 		// }
 		if out, err = exec.Command("ip", "netns", "exec", path.Base(nsPath), "brctl", "setfd", bridgeName, "2").CombinedOutput(); err != nil {
-			fmt.Printf("Set stp off: %s %v %s", nsPath, err, out)
+			glog.Errorf("Set stp off: %s %v %s", nsPath, err, out)
 			continue
 		}
-		break
+		return nil
 	}
 
 	return nil
