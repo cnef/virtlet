@@ -116,6 +116,9 @@ func (ds *domainSettings) createDomain(config *types.VMConfig) *libvirtxml.Domai
 					Period: 5,
 				},
 			},
+			Channels: []libvirtxml.DomainChannel{
+				{Target: &libvirtxml.DomainChannelTarget{Type: "virtio", Name: "org.qemu.guest_agent.0"}},
+			},
 		},
 
 		OS: &libvirtxml.DomainOS{
